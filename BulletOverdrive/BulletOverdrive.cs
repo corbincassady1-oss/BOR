@@ -30,6 +30,9 @@ namespace BulletOverdriveQuest
 
         private static bool impactHitmarkerEnabled = true;
         private static float impactHitmarkerCooldown = 0.025f;
+        private static bool sparksEnabled = true; // legacy internal compatibility
+        private static bool nativeMetalSparksEnabled = false; // legacy path disabled; Hitmarkers are the impact FX
+        private static float impactHitmarkerScale = 4.0f;
         private static int sparkCount = 24;
         private static float sparkLifetime = 0.20f;
         private static float sparkSpeed = 7.0f;
@@ -403,6 +406,25 @@ namespace BulletOverdriveQuest
 
                 // false = normal hitmarker, not a finisher skull.
                 method.Invoke(null, new object[] { worldPoint, false });
+
+                // Hitmarkers normally size themselves from distance. Enlarge the
+                // spawned FX substantially for Bullet Overdrive.
+                try
+                {
+                    var markerType = FindType("NEP.Hitmarkers.Hitmarker");
+                    if (markerType != null)
+                    {
+                        var markerObjects = Resources.FindObjectsOfTypeAll<GameObject>();
+                        foreach (var go in markerObjects)
+                        {
+                            if (go == null || !go.activeInHierarchy || go.name != "Hitmarker") continue;
+                            float dx = Vector3.Distance(go.transform.position, (Vector3)worldPoint);
+                            if (dx < 0.15f)
+                                go.transform.localScale = go.transform.localScale * impactHitmarkerScale;
+                        }
+                    }
+                }
+                catch { }
             }
             catch (Exception ex)
             {
@@ -462,6 +484,7 @@ namespace BulletOverdriveQuest
             AddBool(page, "Enabled", enabled, v => enabled = v);
             AddBool(page, "Impact Hitmarker", impactHitmarkerEnabled, v => impactHitmarkerEnabled = v);
             AddFloat(page, "Hitmarker Cooldown", impactHitmarkerCooldown, 0.005f, 0f, 0.25f, v => impactHitmarkerCooldown = v);
+            AddFloat(page, "Hitmarker Size", impactHitmarkerScale, 1f, 1f, 10f, v => impactHitmarkerScale = v);
 
             var damage = Invoke(page, "CreatePage", "Damage", colorYellow, 0, true);
             AddBool(damage, "Enabled", damageEnabled, v => damageEnabled = v);
