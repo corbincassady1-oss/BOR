@@ -406,13 +406,90 @@ namespace BulletOverdriveQuest
             catch { }
         }
 
+        private static void ConfigureLiveProjectileGlow()
+        {
+            try
+            {
+                var resources = FindType("UnityEngine.Resources");
+                if (resources == null || gameObjectType == null) return;
+
+                var findAll = resources.GetMethod("FindObjectsOfTypeAll", BindingFlags.Public | BindingFlags.Static);
+                if (findAll == null) return;
+
+                var arr = findAll.MakeGenericMethod(gameObjectType).Invoke(null, null) as Array;
+                if (arr == null) return;
+
+                foreach (var go in arr)
+                {
+                    if (go == null) continue;
+                    var name = GetMember(go, "name") as string;
+                    if (string.IsNullOrEmpty(name)) continue;
+
+                    if (name.IndexOf("bullet", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        name.IndexOf("projectile", StringComparison.OrdinalIgnoreCase) >= 0)
+                        ConfigureGlowOnObject(go);
+                }
+            }
+            catch { }
+        }
+
+        private static void ConfigureGlowOnObject(object target)
+        {
+            try
+            {
+                var go = GetMember(target, "gameObject") ?? target;
+                var trailType = FindType("UnityEngine.TrailRenderer");
+                if (go == null || trailType == null) return;
+
+                var trail = GetComponent(go, trailType) ?? AddComponent(go, trailType);
+                if (trail == null) return;
+
+                var c = MakeColor(glowRed, glowGreen, glowBlue, glowAlpha);
+                SetMember(trail, "enabled", true);
+                SetMember(trail, "emitting", true);
+                SetMember(trail, "time", glowLifetime);
+                SetMember(trail, "startWidth", glowWidth);
+                SetMember(trail, "endWidth", glowWidth * 0.1f);
+                SetMember(trail, "minVertexDistance", 0.005f);
+                SetMember(trail, "startColor", c);
+                SetMember(trail, "endColor", MakeColor(glowRed, glowGreen, glowBlue, glowAlpha * 0.05f));
+                SetMember(trail, "numCornerVertices", 2);
+                SetMember(trail, "numCapVertices", 2);
+
+                var material = CreateGlowMaterial();
+                if (material != null)
+                {
+                    SetMember(trail, "material", material);
+                    SetMember(material, "color", c);
+                    SetMaterialColor(material, c);
+                }
+            }
+            catch { }
+        }
+
+        private static void SetMaterialColor(object material, object color)
+        {
+            try
+            {
+                if (materialType == null || unityColorType == null) return;
+                var setColor = materialType.GetMethod("SetColor", new[] { typeof(string), unityColorType });
+                if (setColor == null) return;
+                setColor.Invoke(material, new object[] { "_Color", color });
+                setColor.Invoke(material, new object[] { "_TintColor", color });
+                setColor.Invoke(material, new object[] { "_EmissionColor", color });
+            }
+            catch { }
+        }
+
         private static object CreateGlowMaterial()
         {
             try
             {
                 if (materialType == null || shaderType == null) return null;
                 var find = shaderType.GetMethod("Find", BindingFlags.Public | BindingFlags.Static);
-                var shader = find?.Invoke(null, new object[] { "Unlit/Color" }) ??
+                var shader = find?.Invoke(null, new object[] { "Particles/Standard Unlit" }) ??
+                             find?.Invoke(null, new object[] { "Legacy Shaders/Particles/Alpha Blended Premultiply" }) ??
+                             find?.Invoke(null, new object[] { "Unlit/Color" }) ??
                              find?.Invoke(null, new object[] { "Sprites/Default" });
                 if (shader == null) return null;
 
