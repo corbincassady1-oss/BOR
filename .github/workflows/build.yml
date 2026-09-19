@@ -1,0 +1,26 @@
+name: Build BulletOverdrive
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Verify references
+        run: |
+          test -f BulletOverdrive/References/BoneLib.dll
+          test -f BulletOverdrive/References/MelonLoader.dll
+          test -f BulletOverdrive/References/Assembly-CSharp.dll
+          test -f BulletOverdrive/References/UnityEngine.dll
+      - name: Build
+        run: dotnet build BulletOverdrive/BulletOverdrive.csproj -c Release
+      - name: Upload DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: BulletOverdrive
+          path: BulletOverdrive/BulletOverdrive.dll
