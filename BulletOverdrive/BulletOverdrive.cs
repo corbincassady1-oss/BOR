@@ -218,6 +218,51 @@ namespace BulletOverdriveQuest
             catch { }
         }
 
+        private static void ForceNativeMetalImpactFromCollision(object collision)
+        {
+            try
+            {
+                var collider = GetMember(collision, "collider");
+                if (collider == null) collider = GetMember(collision, "gameObject");
+                var targetGo = GetMember(collider, "gameObject") ?? collider;
+                if (targetGo == null) return;
+
+                var impactType = FindType("Il2CppSLZ.Marrow.ImpactProperties");
+                if (impactType == null) return;
+
+                var impact = GetComponent(targetGo, impactType);
+                bool created = false;
+                if (impact == null)
+                {
+                    impact = AddComponent(targetGo, impactType);
+                    created = impact != null;
+                }
+                if (impact == null) return;
+
+                var cardRefType = FindType("Il2CppSLZ.Marrow.Warehouse.DataCardReference`1");
+                var cardType = FindType("Il2CppSLZ.Marrow.Warehouse.SurfaceDataCard");
+                if (cardRefType == null || cardType == null) return;
+
+                var closed = cardRefType.MakeGenericType(cardType);
+                object cardRef = null;
+                var ctor = closed.GetConstructor(new[] { typeof(string) });
+                if (ctor != null)
+                    cardRef = ctor.Invoke(new object[] { "SLZ.Backlot.SurfaceDataCard.Metal" });
+                else
+                    cardRef = Activator.CreateInstance(closed, new object[] { "SLZ.Backlot.SurfaceDataCard.Metal" });
+
+                if (cardRef == null) return;
+                SetMember(impact, "SurfaceDataCard", cardRef);
+
+                var setup = impact.GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                    .FirstOrDefault(x => x.Name == "SetupSurfaceData" && x.GetParameters().Length == 0);
+                if (setup != null) setup.Invoke(impact, null);
+
+                if (created)
+                    InvokeDestroy(impact, Math.Max(0.10f, sparkLifetime + 0.10f));
+            }
+            catch { }
+        }
         private static void InstallBulletCollisionHook()
         {
             try
