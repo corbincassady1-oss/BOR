@@ -22,7 +22,11 @@ namespace BulletOverdriveQuest
 
         private static bool glowEnabled = true;
         private static float glowLifetime = 0.08f;
-        private static float glowWidth = 0.012f;
+        private static float glowWidth = 0.025f;
+        private static float glowRed = 1.0f;
+        private static float glowGreen = 0.15f;
+        private static float glowBlue = 0.02f;
+        private static float glowAlpha = 1.0f;
 
         private static bool sparksEnabled = true;
         private static int sparkCount = 24;
@@ -138,7 +142,12 @@ namespace BulletOverdriveQuest
             var glow = Invoke(page, "CreatePage", "Mid-Flight Glow", colorCyan, 0, true);
             AddBool(glow, "Enabled", glowEnabled, v => glowEnabled = v);
             AddFloat(glow, "Lifetime", glowLifetime, 0.01f, 0.01f, 0.5f, v => glowLifetime = v);
-            AddFloat(glow, "Width", glowWidth, 0.001f, 0.001f, 0.05f, v => glowWidth = v);
+            AddFloat(glow, "Width", glowWidth, 0.001f, 0.001f, 0.10f, v => glowWidth = v);
+            var glowColor = Invoke(glow, "CreatePage", "Glow Color", colorWhite, 0, true);
+            AddFloat(glowColor, "Red", glowRed, 0.05f, 0f, 1f, v => glowRed = v);
+            AddFloat(glowColor, "Green", glowGreen, 0.05f, 0f, 1f, v => glowGreen = v);
+            AddFloat(glowColor, "Blue", glowBlue, 0.05f, 0f, 1f, v => glowBlue = v);
+            AddFloat(glowColor, "Alpha", glowAlpha, 0.05f, 0.05f, 1f, v => glowAlpha = v);
 
             var sparks = Invoke(page, "CreatePage", "Impact Sparks", colorYellow, 0, true);
             AddBool(sparks, "Enabled", sparksEnabled, v => sparksEnabled = v);
@@ -231,7 +240,10 @@ namespace BulletOverdriveQuest
                     spawn = GetMember(gun, "bullet_spawn");
 
                 if (glowEnabled)
+                {
                     ConfigureProjectileGlow(gun);
+                    ConfigureLiveProjectileGlow();
+                }
 
                 if (sparksEnabled)
                     ScheduleImpactSparks(spawn, gun);
