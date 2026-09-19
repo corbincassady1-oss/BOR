@@ -1,26 +1,57 @@
 name: Build BulletOverdrive
 
 on:
+  push:
+    branches: [ main ]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-      - name: Verify references
+
+      - name: Get official MelonLoader reference
+        shell: bash
         run: |
-          test -f BulletOverdrive/References/BoneLib.dll
-          test -f BulletOverdrive/References/MelonLoader.dll
-          test -f BulletOverdrive/References/Assembly-CSharp.dll
-          test -f BulletOverdrive/References/UnityEngine.dll
+          mkdir -p BulletOverdrive/References
+          curl -L --fail --retry 3 -o /tmp/MelonLoader.zip             https://github.com/LavaGang/MelonLoader/releases/download/v0.6.6/MelonLoader.x64.zip
+          unzip -q /tmp/MelonLoader.zip -d /tmp/melon
+          ML_DLL="$(find /tmp/melon -type f -name 'MelonLoader.dll' | head -n 1)"
+          test -n "$ML_DLL"
+          cp "$ML_DLL" BulletOverdrive/References/MelonLoader.dll
+
       - name: Build
-        run: dotnet build BulletOverdrive/BulletOverdrive.csproj -c Release
-      - name: Upload DLL
+        run: dotnet build BulletOverdrive/BulletOverdrive.csproj -c Release --nologo
+
+      - name: Verify output
+        run: |
+          test -f BulletOverdrive/BulletOverdrive.dll
+          file BulletOverdrive/BulletOverdrive.dll
+
+      - name: Upload DLL artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BulletOverdrive
+          name: BulletOverdrive-DLL
           path: BulletOverdrive/BulletOverdrive.dll
+          if-no-files-found: error
+
+      - name: Publish built DLL to build branch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin build:refs/remotes/origin/build || true
+          git checkout -B build
+          mkdir -p releases
+          cp BulletOverdrive/BulletOverdrive.dll releases/BulletOverdrive.dll
+          git add releases/BulletOverdrive.dll
+          git commit -m "Build BulletOverdrive.dll" || true
+          git push origin build
