@@ -4,6 +4,7 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using MelonLoader;
+using UnityEngine;
 
 [assembly: MelonInfo(typeof(BulletOverdriveQuest.BulletOverdriveMod), "Bullet Overdrive", "1.0.0", "OpenAI")]
 [assembly: MelonGame("Stress Level Zero", "BONELAB")]
