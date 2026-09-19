@@ -10,10 +10,10 @@
     <Nullable>disable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="BoneLib"><HintPath>References/BoneLib.dll</HintPath><Private>false</Private></Reference>
-    <Reference Include="MelonLoader"><HintPath>References/MelonLoader.dll</HintPath><Private>false</Private></Reference>
-    <Reference Include="Assembly-CSharp"><HintPath>References/Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
-    <Reference Include="UnityEngine"><HintPath>References/UnityEngine.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="MelonLoader">
+      <HintPath>References/MelonLoader.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
   <Target Name="CopyFinalDll" AfterTargets="Build">
     <Copy SourceFiles="$(TargetPath)" DestinationFiles="$(MSBuildProjectDirectory)/BulletOverdrive.dll" />
