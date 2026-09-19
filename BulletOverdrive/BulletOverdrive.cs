@@ -385,23 +385,8 @@ namespace BulletOverdriveQuest
             try
             {
                 var prefab = GetMember(gun, "bullet_prefab");
-                if (prefab == null) return;
-                var go = GetMember(prefab, "gameObject") ?? prefab;
-                if (go == null) return;
-
-                var trailType = FindType("UnityEngine.TrailRenderer");
-                if (trailType == null) return;
-
-                var trail = GetComponent(go, trailType) ?? AddComponent(go, trailType);
-                if (trail == null) return;
-
-                SetMember(trail, "time", glowLifetime);
-                SetMember(trail, "startWidth", glowWidth);
-                SetMember(trail, "endWidth", glowWidth * 0.15f);
-                SetMember(trail, "minVertexDistance", 0.01f);
-
-                var material = CreateGlowMaterial();
-                if (material != null) SetMember(trail, "material", material);
+                if (prefab == null) prefab = GetMember(gun, "bulletPrefab");
+                if (prefab != null) ConfigureGlowOnObject(prefab);
             }
             catch { }
         }
