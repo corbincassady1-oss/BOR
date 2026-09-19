@@ -174,7 +174,6 @@ namespace BulletOverdriveQuest
                 for (int i = 2; i < args.Length; i++) args[i] = null;
                 patch.Invoke(harmonyInstance, args);
 
-                liveDelegates.Add(prefix);
                 MelonLogger.Msg("[Bullet Overdrive] Hooked BONELAB Bullet.OnCollisionEnter for real impact VFX.");
             }
             catch (Exception ex)
