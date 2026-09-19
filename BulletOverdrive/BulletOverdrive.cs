@@ -4,7 +4,6 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using MelonLoader;
-using UnityEngine;
 
 [assembly: MelonInfo(typeof(BulletOverdriveQuest.BulletOverdriveMod), "Bullet Overdrive", "1.0.0", "OpenAI")]
 [assembly: MelonGame("Stress Level Zero", "BONELAB")]
@@ -412,16 +411,41 @@ namespace BulletOverdriveQuest
                 // spawned FX substantially for Bullet Overdrive.
                 try
                 {
-                    var markerType = FindType("NEP.Hitmarkers.Hitmarker");
-                    if (markerType != null)
+                    var resourcesType = FindType("UnityEngine.Resources");
+                    var gameObjectType = FindType("UnityEngine.GameObject");
+                    var vectorType = vector3Type;
+                    if (resourcesType != null && gameObjectType != null && vectorType != null)
                     {
-                        var markerObjects = Resources.FindObjectsOfTypeAll<GameObject>();
-                        foreach (var go in markerObjects)
+                        var find = resourcesType.GetMethods(BindingFlags.Public | BindingFlags.Static)
+                            .FirstOrDefault(m => m.Name == "FindObjectsOfTypeAll" && m.IsGenericMethodDefinition);
+                        if (find != null)
                         {
-                            if (go == null || !go.activeInHierarchy || go.name != "Hitmarker") continue;
-                            float dx = Vector3.Distance(go.transform.position, (Vector3)worldPoint);
-                            if (dx < 0.15f)
-                                go.transform.localScale = go.transform.localScale * impactHitmarkerScale;
+                            var findGo = find.MakeGenericMethod(gameObjectType);
+                            var markerObjects = findGo.Invoke(null, null) as Array;
+                            var distance = vectorType.GetMethod("Distance", BindingFlags.Public | BindingFlags.Static);
+                            var multiply = vectorType.GetMethod("op_Multiply", BindingFlags.Public | BindingFlags.Static, null,
+                                new[] { vectorType, typeof(float) }, null);
+
+                            if (markerObjects != null && distance != null && multiply != null)
+                            {
+                                foreach (var go in markerObjects)
+                                {
+                                    if (go == null) continue;
+                                    var active = GetMember(go, "activeInHierarchy");
+                                    var name = GetMember(go, "name") as string;
+                                    if (!(active is bool b) || !b || name != "Hitmarker") continue;
+
+                                    var tr = GetMember(go, "transform");
+                                    var pos = GetMember(tr, "position");
+                                    var dx = distance.Invoke(null, new[] { pos, worldPoint });
+                                    if (dx is float d && d < 0.15f)
+                                    {
+                                        var scale = GetMember(tr, "localScale");
+                                        var newScale = multiply.Invoke(null, new[] { scale, (object)impactHitmarkerScale });
+                                        SetMember(tr, "localScale", newScale);
+                                    }
+                                }
+                            }
                         }
                     }
                 }
