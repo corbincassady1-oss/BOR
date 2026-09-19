@@ -29,6 +29,7 @@ namespace BulletOverdriveQuest
         private static float glowAlpha = 1.0f;
 
         private static bool sparksEnabled = true;
+        private static bool nativeMetalSparksEnabled = true;
         private static int sparkCount = 24;
         private static float sparkLifetime = 0.20f;
         private static float sparkSpeed = 7.0f;
@@ -151,6 +152,7 @@ namespace BulletOverdriveQuest
 
             var sparks = Invoke(page, "CreatePage", "Impact Sparks", colorYellow, 0, true);
             AddBool(sparks, "Enabled", sparksEnabled, v => sparksEnabled = v);
+            AddBool(sparks, "Use Native Metal Sparks", nativeMetalSparksEnabled, v => nativeMetalSparksEnabled = v);
             AddInt(sparks, "Count", sparkCount, 1, 1, 100, v => sparkCount = v);
             AddFloat(sparks, "Lifetime", sparkLifetime, 0.02f, 0.02f, 1f, v => sparkLifetime = v);
             AddFloat(sparks, "Speed", sparkSpeed, 0.5f, 0.5f, 30f, v => sparkSpeed = v);
@@ -514,7 +516,10 @@ namespace BulletOverdriveQuest
                 if (parameters.Length != 3)
                 {
                     if (!(hit is bool ok) || !ok || args[3] == null) return;
-                    SpawnSparksAtHit(args[3]);
+                    if (nativeMetalSparksEnabled)
+                        ForceNativeMetalImpact(args[3]);
+                    else
+                        SpawnSparksAtHit(args[3]);
                 }
                 else
                 {
@@ -523,6 +528,50 @@ namespace BulletOverdriveQuest
                 }
             }
             catch { }
+        }
+
+        private static void ForceNativeMetalImpact(object hit)
+        {
+            try
+            {
+                var collider = GetMember(hit, "collider");
+                var targetGo = GetMember(collider, "gameObject") ?? collider;
+                if (targetGo == null) return;
+
+                var impactType = FindType("Il2CppSLZ.Marrow.ImpactProperties");
+                if (impactType == null) return;
+
+                var impact = GetComponent(targetGo, impactType) ?? AddComponent(targetGo, impactType);
+                if (impact == null) return;
+
+                var cardRefType = FindType("Il2CppSLZ.Marrow.Warehouse.DataCardReference`1");
+                var cardType = FindType("Il2CppSLZ.Marrow.Warehouse.SurfaceDataCard");
+                if (cardRefType != null && cardType != null)
+                {
+                    var closed = cardRefType.MakeGenericType(cardType);
+                    object cardRef = null;
+                    var ctor = closed.GetConstructor(new[] { typeof(string) });
+                    if (ctor != null)
+                        cardRef = ctor.Invoke(new object[] { "SLZ.Backlot.SurfaceDataCard.Metal" });
+                    else
+                        cardRef = Activator.CreateInstance(closed, new object[] { "SLZ.Backlot.SurfaceDataCard.Metal" });
+
+                    if (cardRef != null)
+                        SetMember(impact, "SurfaceDataCard", cardRef);
+                }
+
+                var setup = impact.GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                    .FirstOrDefault(x => x.Name == "SetupSurfaceData");
+                if (setup != null && setup.GetParameters().Length == 0)
+                    setup.Invoke(impact, null);
+
+                InvokeDestroy(impact, Math.Max(0.25f, sparkLifetime + 0.15f));
+            }
+            catch (Exception ex)
+            {
+                try { MelonLogger.Warning("[Bullet Overdrive] Native metal impact setup failed: " + ex.Message); } catch { }
+                SpawnSparksAtHit(hit);
+            }
         }
 
         private static void SpawnSparksAtHit(object hit)
