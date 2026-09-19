@@ -31,7 +31,7 @@ namespace BulletOverdriveQuest
         private static bool impactHitmarkerEnabled = true;
         private static float impactHitmarkerCooldown = 0.025f;
         private static bool sparksEnabled = true; // legacy internal compatibility
-        private static bool nativeMetalSparksEnabled = false; // legacy path disabled; Hitmarkers are the impact FX
+        private static bool nativeMetalSparksEnabled = true; // BONELAB native metal/steel orange impact FX
         private static float impactHitmarkerScale = 4.0f;
         private static int sparkCount = 24;
         private static float sparkLifetime = 0.20f;
@@ -62,6 +62,7 @@ namespace BulletOverdriveQuest
             {
                 CacheUnityTypes();
                 InstallBoneLibHook();
+                InstallGunImpactVfxHook();
                 InstallBulletCollisionHook();
                 BuildBoneMenu();
                 MelonLogger.Msg("[Bullet Overdrive] Loaded for Quest/IL2CPP.");
@@ -202,7 +203,7 @@ namespace BulletOverdriveQuest
 
                 if (hooked > 0)
                     MelonLogger.Msg("[Bullet Overdrive] Hooked " + hooked +
-                                    " native ImpactVFX(Collision) method(s) for orange/metal sparks.");
+                                    " native ImpactVFX(Collision) method(s) for native orange metal/steel sparks.");
             }
             catch (Exception ex)
             {
@@ -269,12 +270,12 @@ namespace BulletOverdriveQuest
         {
             try
             {
-                // Hook BONELAB's real projectile collision and feed the exact impact
-                // position into the existing Not Enough Photons Hitmarkers system.
+                // Hook BONELAB's real projectile collision and force the native
+                // metal/steel impact FX at the actual collision point.
                 var harmony = FindType("HarmonyLib.Harmony");
                 if (harmony == null)
                 {
-                    MelonLogger.Warning("[Bullet Overdrive] Harmony was not found; impact hitmarkers disabled.");
+                    MelonLogger.Warning("[Bullet Overdrive] Harmony was not found; native metal/steel impact FX disabled.");
                     return;
                 }
 
@@ -324,7 +325,7 @@ namespace BulletOverdriveQuest
 
                 patch.Invoke(harmonyInstance, args);
 
-                MelonLogger.Msg("[Bullet Overdrive] Hooked BONELAB Bullet.OnCollisionEnter for Hitmarkers.");
+                MelonLogger.Msg("[Bullet Overdrive] Hooked BONELAB Bullet.OnCollisionEnter for native orange metal/steel impact FX. [PR BUILD]");
             }
             catch (Exception ex)
             {
@@ -348,11 +349,11 @@ namespace BulletOverdriveQuest
                 recentBulletImpacts[id] = now;
 
                 // __0 is BONELAB's actual UnityEngine.Collision argument.
-                // Use its real contact point so the hitmarker appears exactly where
-                // the projectile hit, including impacts on arbitrary colliders.
-                var point = GetCollisionPoint(__0);
-                if (point != null)
-                    SpawnImpactHitmarker(point);
+                // Force BONELAB's own Metal surface data before its native impact
+                // routine runs. This produces the orange/yellow metal & steel FX,
+                // rather than the white Hitmarker effect.
+                if (nativeMetalSparksEnabled)
+                    ForceNativeMetalImpactFromCollision(__0);
             }
             catch { }
         }
@@ -507,9 +508,8 @@ namespace BulletOverdriveQuest
 
             var page = Invoke(root, "CreatePage", "Bullet Overdrive", colorRed, 0, true);
             AddBool(page, "Enabled", enabled, v => enabled = v);
-            AddBool(page, "Impact Hitmarker", impactHitmarkerEnabled, v => impactHitmarkerEnabled = v);
-            AddFloat(page, "Hitmarker Cooldown", impactHitmarkerCooldown, 0.005f, 0f, 0.25f, v => impactHitmarkerCooldown = v);
-            AddFloat(page, "Hitmarker Size", impactHitmarkerScale, 1f, 1f, 10f, v => impactHitmarkerScale = v);
+            AddBool(page, "Metal & Steel Impact FX", impactHitmarkerEnabled, v => impactHitmarkerEnabled = v);
+            AddFloat(page, "Impact Cooldown", impactHitmarkerCooldown, 0.005f, 0f, 0.25f, v => impactHitmarkerCooldown = v);
 
             var damage = Invoke(page, "CreatePage", "Damage", colorYellow, 0, true);
             AddBool(damage, "Enabled", damageEnabled, v => damageEnabled = v);
@@ -529,14 +529,9 @@ namespace BulletOverdriveQuest
             AddFloat(glowColor, "Blue", glowBlue, 0.05f, 0f, 1f, v => glowBlue = v);
             AddFloat(glowColor, "Alpha", glowAlpha, 0.05f, 0.05f, 1f, v => glowAlpha = v);
 
-            var sparks = Invoke(page, "CreatePage", "Impact Sparks", colorYellow, 0, true);
-            AddBool(sparks, "Enabled", impactHitmarkerEnabled, v => impactHitmarkerEnabled = v);
-            AddBool(sparks, "Use Native Metal Sparks", nativeMetalSparksEnabled, v => nativeMetalSparksEnabled = v);
-            AddInt(sparks, "Count", sparkCount, 1, 1, 100, v => sparkCount = v);
-            AddFloat(sparks, "Lifetime", sparkLifetime, 0.02f, 0.02f, 1f, v => sparkLifetime = v);
-            AddFloat(sparks, "Speed", sparkSpeed, 0.5f, 0.5f, 30f, v => sparkSpeed = v);
-            AddFloat(sparks, "Size", sparkSize, 0.005f, 0.005f, 0.15f, v => sparkSize = v);
-            AddFloat(sparks, "Raycast Range", sparkRange, 10f, 10f, 1000f, v => sparkRange = v);
+            var sparks = Invoke(page, "CreatePage", "Impact FX", colorYellow, 0, true);
+            AddBool(sparks, "Metal & Steel FX", nativeMetalSparksEnabled, v => nativeMetalSparksEnabled = v);
+            AddFloat(sparks, "Cooldown", impactHitmarkerCooldown, 0.005f, 0f, 0.25f, v => impactHitmarkerCooldown = v);
 
             var advanced = Invoke(page, "CreatePage", "Advanced", colorWhite, 0, true);
             AddFunction(advanced, "Reapply To Current Guns", ReapplyToCurrentGuns);
