@@ -49,6 +49,9 @@ namespace BulletOverdriveQuest
         private static Type physicsType;
         private static Type rayType;
         private static Type vector3Type;
+        private static Type timeType;
+        private static Type harmonyType;
+        private static readonly Dictionary<int, float> recentBulletImpacts = new Dictionary<int, float>();
 
         public override void OnInitializeMelon()
         {
@@ -56,6 +59,7 @@ namespace BulletOverdriveQuest
             {
                 CacheUnityTypes();
                 InstallBoneLibHook();
+                InstallBulletCollisionHook();
                 BuildBoneMenu();
                 MelonLogger.Msg("[Bullet Overdrive] Loaded for Quest/IL2CPP.");
             }
@@ -77,6 +81,7 @@ namespace BulletOverdriveQuest
             physicsType = FindType("UnityEngine.Physics");
             rayType = FindType("UnityEngine.Ray");
             vector3Type = FindType("UnityEngine.Vector3");
+            timeType = FindType("UnityEngine.Time");
         }
 
         private static Type FindType(string fullName)
@@ -113,6 +118,130 @@ namespace BulletOverdriveQuest
             var lambda = Expression.Lambda(evt.EventHandlerType, body, p).Compile();
             liveDelegates.Add(lambda);
             evt.AddEventHandler(null, lambda);
+        }
+
+        private static void InstallBulletCollisionHook()
+        {
+            try
+            {
+                // GunModifier uses BoneLib's gun-fire hook; Bullet Overdrive keeps that same
+                // fire path, then additionally hooks BONELAB's actual projectile collision so
+                // impact VFX are created when the bullet really hits something.
+                var harmony = FindType("HarmonyLib.Harmony");
+                if (harmony == null)
+                {
+                    MelonLogger.Warning("[Bullet Overdrive] Harmony was not found; native impact hook disabled.");
+                    return;
+                }
+
+                var bulletType = AppDomain.CurrentDomain.GetAssemblies()
+                    .SelectMany(a =>
+                    {
+                        try { return a.GetTypes(); } catch { return Array.Empty<Type>(); }
+                    })
+                    .FirstOrDefault(t => t.Name == "Bullet" &&
+                        t.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                         .Any(m => m.Name == "OnCollisionEnter" && m.GetParameters().Length == 1));
+
+                if (bulletType == null)
+                {
+                    MelonLogger.Warning("[Bullet Overdrive] BONELAB Bullet.OnCollisionEnter was not found.");
+                    return;
+                }
+
+                var collision = bulletType.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                    .First(m => m.Name == "OnCollisionEnter" && m.GetParameters().Length == 1);
+                var prefix = typeof(BulletOverdriveMod).GetMethod(
+                    nameof(BulletCollisionPrefix), BindingFlags.Static | BindingFlags.NonPublic);
+
+                var harmonyInstance = Activator.CreateInstance(harmony, new object[] { "OpenAI.BulletOverdrive" });
+                var harmonyMethodType = FindType("HarmonyLib.HarmonyMethod");
+                if (harmonyMethodType == null) return;
+                var hmCtor = harmonyMethodType.GetConstructor(new[] { typeof(MethodInfo) });
+                if (hmCtor == null) return;
+                var prefixMethod = hmCtor.Invoke(new object[] { prefix });
+
+                var patch = harmony.GetMethods(BindingFlags.Instance | BindingFlags.Public)
+                    .FirstOrDefault(m => m.Name == "Patch" &&
+                        m.GetParameters().Length >= 2 &&
+                        typeof(MethodBase).IsAssignableFrom(m.GetParameters()[0].ParameterType));
+                if (patch == null) return;
+
+                var ps = patch.GetParameters();
+                var args = new object[ps.Length];
+                args[0] = collision;
+                args[1] = prefixMethod;
+                for (int i = 2; i < args.Length; i++) args[i] = null;
+                patch.Invoke(harmonyInstance, args);
+
+                liveDelegates.Add(prefix);
+                MelonLogger.Msg("[Bullet Overdrive] Hooked BONELAB Bullet.OnCollisionEnter for real impact VFX.");
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Warning("[Bullet Overdrive] Bullet collision hook failed: " + ex.Message);
+            }
+        }
+
+        private static void BulletCollisionPrefix(object __instance)
+        {
+            if (!enabled || !sparksEnabled || !nativeMetalSparksEnabled || __instance == null) return;
+            try
+            {
+                int id = __instance.GetHashCode();
+                float now = GetTime();
+                if (recentBulletImpacts.TryGetValue(id, out var last) && now - last < 0.05f) return;
+                recentBulletImpacts[id] = now;
+
+                var tr = GetMember(__instance, "transform");
+                if (tr == null) return;
+                var point = GetMember(tr, "position");
+                var direction = GetMember(tr, "forward");
+                if (point == null || direction == null) return;
+
+                // At OnCollisionEnter the projectile is at the real impact location.
+                // A short reverse probe recovers the collider and surface point without
+                // fabricating a hit at the gun muzzle.
+                var back = MultiplyVector(direction, -0.20f);
+                var origin = AddVector(point, back);
+                var hit = RaycastForImpact(origin, direction, 0.40f);
+                if (hit != null)
+                    ForceNativeMetalImpact(hit);
+            }
+            catch { }
+        }
+
+        private static float GetTime()
+        {
+            try
+            {
+                var p = timeType?.GetProperty("time", BindingFlags.Public | BindingFlags.Static);
+                return p != null ? Convert.ToSingle(p.GetValue(null, null)) : 0f;
+            }
+            catch { return 0f; }
+        }
+
+        private static object RaycastForImpact(object origin, object direction, float distance)
+        {
+            try
+            {
+                if (physicsType == null || vector3Type == null) return null;
+                foreach (var m in physicsType.GetMethods(BindingFlags.Public | BindingFlags.Static)
+                    .Where(x => x.Name == "Raycast"))
+                {
+                    var ps = m.GetParameters();
+                    if (ps.Length != 4) continue;
+                    if (ps[0].ParameterType != vector3Type || ps[1].ParameterType != vector3Type || ps[2].ParameterType != typeof(float)) continue;
+                    if (!ps[3].ParameterType.IsByRef) continue;
+
+                    var hitType = ps[3].ParameterType.GetElementType();
+                    var args = new object[] { origin, direction, distance, Activator.CreateInstance(hitType) };
+                    var result = m.Invoke(null, args);
+                    if (result is bool ok && ok) return args[3];
+                }
+            }
+            catch { }
+            return null;
         }
 
         private static void BuildBoneMenu()
@@ -247,7 +376,10 @@ namespace BulletOverdriveQuest
                     ConfigureLiveProjectileGlow();
                 }
 
-                if (sparksEnabled)
+                // The real collision hook is responsible for metal impact sparks.
+                // Keep the gun-fire path from spawning fake sparks at the muzzle.
+                // GunModifier's BoneLib fire-hook pattern is still used for the gun tuning.
+                if (sparksEnabled && !nativeMetalSparksEnabled)
                     ScheduleImpactSparks(spawn, gun);
             }
             catch (Exception ex)
