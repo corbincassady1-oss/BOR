@@ -28,8 +28,8 @@ namespace BulletOverdriveQuest
         private static float glowBlue = 0.02f;
         private static float glowAlpha = 1.0f;
 
-        private static bool sparksEnabled = true;
-        private static bool nativeMetalSparksEnabled = true;
+        private static bool impactHitmarkerEnabled = true;
+        private static float impactHitmarkerCooldown = 0.025f;
         private static int sparkCount = 24;
         private static float sparkLifetime = 0.20f;
         private static float sparkSpeed = 7.0f;
@@ -60,7 +60,6 @@ namespace BulletOverdriveQuest
                 CacheUnityTypes();
                 InstallBoneLibHook();
                 InstallBulletCollisionHook();
-                InstallGunImpactVfxHook();
                 BuildBoneMenu();
                 MelonLogger.Msg("[Bullet Overdrive] Loaded for Quest/IL2CPP.");
             }
@@ -267,13 +266,12 @@ namespace BulletOverdriveQuest
         {
             try
             {
-                // GunModifier uses BoneLib's gun-fire hook; Bullet Overdrive keeps that same
-                // fire path, then additionally hooks BONELAB's actual projectile collision so
-                // impact VFX are created when the bullet really hits something.
+                // Hook BONELAB's real projectile collision and feed the exact impact
+                // position into the existing Not Enough Photons Hitmarkers system.
                 var harmony = FindType("HarmonyLib.Harmony");
                 if (harmony == null)
                 {
-                    MelonLogger.Warning("[Bullet Overdrive] Harmony was not found; native impact hook disabled.");
+                    MelonLogger.Warning("[Bullet Overdrive] Harmony was not found; impact hitmarkers disabled.");
                     return;
                 }
 
@@ -294,14 +292,19 @@ namespace BulletOverdriveQuest
 
                 var collision = bulletType.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
                     .First(m => m.Name == "OnCollisionEnter" && m.GetParameters().Length == 1);
+
                 var prefix = typeof(BulletOverdriveMod).GetMethod(
                     nameof(BulletCollisionPrefix), BindingFlags.Static | BindingFlags.NonPublic);
 
-                var harmonyInstance = Activator.CreateInstance(harmony, new object[] { "OpenAI.BulletOverdrive" });
+                var harmonyInstance = Activator.CreateInstance(
+                    harmony, new object[] { "OpenAI.BulletOverdrive.ImpactHitmarker" });
+
                 var harmonyMethodType = FindType("HarmonyLib.HarmonyMethod");
-                if (harmonyMethodType == null) return;
+                if (harmonyMethodType == null || prefix == null) return;
+
                 var hmCtor = harmonyMethodType.GetConstructor(new[] { typeof(MethodInfo) });
                 if (hmCtor == null) return;
+
                 var prefixMethod = hmCtor.Invoke(new object[] { prefix });
 
                 var patch = harmony.GetMethods(BindingFlags.Instance | BindingFlags.Public)
@@ -315,42 +318,97 @@ namespace BulletOverdriveQuest
                 args[0] = collision;
                 args[1] = prefixMethod;
                 for (int i = 2; i < args.Length; i++) args[i] = null;
+
                 patch.Invoke(harmonyInstance, args);
 
-                MelonLogger.Msg("[Bullet Overdrive] Hooked BONELAB Bullet.OnCollisionEnter for real impact VFX.");
+                MelonLogger.Msg("[Bullet Overdrive] Hooked BONELAB Bullet.OnCollisionEnter for Hitmarkers.");
             }
             catch (Exception ex)
             {
-                MelonLogger.Warning("[Bullet Overdrive] Bullet collision hook failed: " + ex.Message);
+                MelonLogger.Warning("[Bullet Overdrive] Bullet collision hitmarker hook failed: " + ex.Message);
             }
         }
 
-        private static void BulletCollisionPrefix(object __instance)
+        private static void BulletCollisionPrefix(object __instance, object __0)
         {
-            if (!enabled || !sparksEnabled || !nativeMetalSparksEnabled || __instance == null) return;
+            if (!enabled || !impactHitmarkerEnabled || __instance == null || __0 == null) return;
+
             try
             {
                 int id = __instance.GetHashCode();
                 float now = GetTime();
-                if (recentBulletImpacts.TryGetValue(id, out var last) && now - last < 0.05f) return;
+
+                if (recentBulletImpacts.TryGetValue(id, out var last) &&
+                    now - last < impactHitmarkerCooldown)
+                    return;
+
                 recentBulletImpacts[id] = now;
 
-                var tr = GetMember(__instance, "transform");
-                if (tr == null) return;
-                var point = GetMember(tr, "position");
-                var direction = GetMember(tr, "forward");
-                if (point == null || direction == null) return;
-
-                // At OnCollisionEnter the projectile is at the real impact location.
-                // A short reverse probe recovers the collider and surface point without
-                // fabricating a hit at the gun muzzle.
-                var back = MultiplyVector(direction, -0.20f);
-                var origin = AddVector(point, back);
-                var hit = RaycastForImpact(origin, direction, 0.40f);
-                if (hit != null)
-                    ForceNativeMetalImpact(hit);
+                // __0 is BONELAB's actual UnityEngine.Collision argument.
+                // Use its real contact point so the hitmarker appears exactly where
+                // the projectile hit, including impacts on arbitrary colliders.
+                var point = GetCollisionPoint(__0);
+                if (point != null)
+                    SpawnImpactHitmarker(point);
             }
             catch { }
+        }
+
+        private static object GetCollisionPoint(object collision)
+        {
+            try
+            {
+                var contacts = GetMember(collision, "contacts") as Array;
+                if (contacts != null && contacts.Length > 0)
+                {
+                    var contact = contacts.GetValue(0);
+                    var point = GetMember(contact, "point");
+                    if (point != null) return point;
+                }
+
+                // Fallback for unusual IL2CPP collision wrappers.
+                return GetMember(collision, "transform") != null
+                    ? GetMember(GetMember(collision, "transform"), "position")
+                    : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static void SpawnImpactHitmarker(object worldPoint)
+        {
+            try
+            {
+                var manager = FindType("NEP.Hitmarkers.HitmarkerManager");
+                if (manager == null)
+                {
+                    MelonLogger.Warning("[Bullet Overdrive] Not Enough Photons Hitmarkers was not found.");
+                    return;
+                }
+
+                var method = manager.GetMethod(
+                    "SpawnMarker",
+                    BindingFlags.Public | BindingFlags.Static,
+                    null,
+                    new[] { vector3Type, typeof(bool) },
+                    null);
+
+                if (method == null)
+                {
+                    MelonLogger.Warning("[Bullet Overdrive] HitmarkerManager.SpawnMarker was not found.");
+                    return;
+                }
+
+                // false = normal hitmarker, not a finisher skull.
+                method.Invoke(null, new object[] { worldPoint, false });
+            }
+            catch (Exception ex)
+            {
+                try { MelonLogger.Warning("[Bullet Overdrive] Hitmarker spawn failed: " + ex.Message); }
+                catch { }
+            }
         }
 
         private static float GetTime()
@@ -402,6 +460,8 @@ namespace BulletOverdriveQuest
 
             var page = Invoke(root, "CreatePage", "Bullet Overdrive", colorRed, 0, true);
             AddBool(page, "Enabled", enabled, v => enabled = v);
+            AddBool(page, "Impact Hitmarker", impactHitmarkerEnabled, v => impactHitmarkerEnabled = v);
+            AddFloat(page, "Hitmarker Cooldown", impactHitmarkerCooldown, 0.005f, 0f, 0.25f, v => impactHitmarkerCooldown = v);
 
             var damage = Invoke(page, "CreatePage", "Damage", colorYellow, 0, true);
             AddBool(damage, "Enabled", damageEnabled, v => damageEnabled = v);
@@ -422,7 +482,7 @@ namespace BulletOverdriveQuest
             AddFloat(glowColor, "Alpha", glowAlpha, 0.05f, 0.05f, 1f, v => glowAlpha = v);
 
             var sparks = Invoke(page, "CreatePage", "Impact Sparks", colorYellow, 0, true);
-            AddBool(sparks, "Enabled", sparksEnabled, v => sparksEnabled = v);
+            AddBool(sparks, "Enabled", impactHitmarkerEnabled, v => impactHitmarkerEnabled = v);
             AddBool(sparks, "Use Native Metal Sparks", nativeMetalSparksEnabled, v => nativeMetalSparksEnabled = v);
             AddInt(sparks, "Count", sparkCount, 1, 1, 100, v => sparkCount = v);
             AddFloat(sparks, "Lifetime", sparkLifetime, 0.02f, 0.02f, 1f, v => sparkLifetime = v);
