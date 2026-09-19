@@ -60,6 +60,7 @@ namespace BulletOverdriveQuest
                 CacheUnityTypes();
                 InstallBoneLibHook();
                 InstallBulletCollisionHook();
+                InstallGunImpactVfxHook();
                 BuildBoneMenu();
                 MelonLogger.Msg("[Bullet Overdrive] Loaded for Quest/IL2CPP.");
             }
@@ -118,6 +119,128 @@ namespace BulletOverdriveQuest
             var lambda = Expression.Lambda(evt.EventHandlerType, body, p).Compile();
             liveDelegates.Add(lambda);
             evt.AddEventHandler(null, lambda);
+        }
+
+        private static void InstallGunImpactVfxHook()
+        {
+            try
+            {
+                var harmony = FindType("HarmonyLib.Harmony");
+                if (harmony == null) return;
+
+                var gunType = FindType("Il2CppSLZ.Marrow.Gun");
+                if (gunType == null)
+                {
+                    gunType = AppDomain.CurrentDomain.GetAssemblies()
+                        .SelectMany(a =>
+                        {
+                            try { return a.GetTypes(); } catch { return Array.Empty<Type>(); }
+                        })
+                        .FirstOrDefault(t => t.Name == "Gun");
+                }
+
+                if (gunType == null) return;
+
+                var collisionType = FindType("UnityEngine.Collision");
+                var impact = gunType.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                    .FirstOrDefault(m => m.Name == "ImpactVFX" &&
+                                         m.GetParameters().Length == 1 &&
+                                         (collisionType == null || m.GetParameters()[0].ParameterType == collisionType));
+
+                if (impact == null)
+                {
+                    MelonLogger.Warning("[Bullet Overdrive] Gun.ImpactVFX(Collision) was not found.");
+                    return;
+                }
+
+                var prefix = typeof(BulletOverdriveMod).GetMethod(
+                    nameof(GunImpactVfxPrefix), BindingFlags.Static | BindingFlags.NonPublic);
+
+                var harmonyInstance = Activator.CreateInstance(harmony, new object[] { "OpenAI.BulletOverdrive.ImpactVFX" });
+                var harmonyMethodType = FindType("HarmonyLib.HarmonyMethod");
+                if (harmonyMethodType == null) return;
+                var hmCtor = harmonyMethodType.GetConstructor(new[] { typeof(MethodInfo) });
+                if (hmCtor == null) return;
+                var prefixMethod = hmCtor.Invoke(new object[] { prefix });
+
+                var patch = harmony.GetMethods(BindingFlags.Instance | BindingFlags.Public)
+                    .FirstOrDefault(m => m.Name == "Patch" &&
+                        m.GetParameters().Length >= 2 &&
+                        typeof(MethodBase).IsAssignableFrom(m.GetParameters()[0].ParameterType));
+                if (patch == null) return;
+
+                var ps = patch.GetParameters();
+                var args = new object[ps.Length];
+                args[0] = impact;
+                args[1] = prefixMethod;
+                for (int i = 2; i < args.Length; i++) args[i] = null;
+                patch.Invoke(harmonyInstance, args);
+
+                MelonLogger.Msg("[Bullet Overdrive] Hooked BONELAB Gun.ImpactVFX(Collision) for native metal impact effects.");
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Warning("[Bullet Overdrive] Gun.ImpactVFX hook failed: " + ex.Message);
+            }
+        }
+
+        private static void GunImpactVfxPrefix(object collision)
+        {
+            if (!enabled || !sparksEnabled || !nativeMetalSparksEnabled || collision == null) return;
+            try
+            {
+                ForceNativeMetalImpactFromCollision(collision);
+            }
+            catch { }
+        }
+
+        private static void ForceNativeMetalImpactFromCollision(object collision)
+        {
+            try
+            {
+                // Use the exact collider from the real Collision passed into BONELAB.
+                // This lets BONELAB's own ImpactVFX(Collision) create the native effect.
+                var collider = GetMember(collision, "collider");
+                if (collider == null) collider = GetMember(collision, "gameObject");
+
+                var targetGo = GetMember(collider, "gameObject") ?? collider;
+                if (targetGo == null) return;
+
+                var impactType = FindType("Il2CppSLZ.Marrow.ImpactProperties");
+                if (impactType == null) return;
+
+                var impact = GetComponent(targetGo, impactType);
+                bool created = false;
+                if (impact == null)
+                {
+                    impact = AddComponent(targetGo, impactType);
+                    created = impact != null;
+                }
+                if (impact == null) return;
+
+                var cardRefType = FindType("Il2CppSLZ.Marrow.Warehouse.DataCardReference`1");
+                var cardType = FindType("Il2CppSLZ.Marrow.Warehouse.SurfaceDataCard");
+                if (cardRefType == null || cardType == null) return;
+
+                var closed = cardRefType.MakeGenericType(cardType);
+                object cardRef = null;
+                var ctor = closed.GetConstructor(new[] { typeof(string) });
+                if (ctor != null)
+                    cardRef = ctor.Invoke(new object[] { "SLZ.Backlot.SurfaceDataCard.Metal" });
+                else
+                    cardRef = Activator.CreateInstance(closed, new object[] { "SLZ.Backlot.SurfaceDataCard.Metal" });
+
+                if (cardRef == null) return;
+                SetMember(impact, "SurfaceDataCard", cardRef);
+
+                var setup = impact.GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                    .FirstOrDefault(x => x.Name == "SetupSurfaceData" && x.GetParameters().Length == 0);
+                if (setup != null) setup.Invoke(impact, null);
+
+                if (created)
+                    InvokeDestroy(impact, Math.Max(0.10f, sparkLifetime + 0.10f));
+            }
+            catch { }
         }
 
         private static void InstallBulletCollisionHook()
