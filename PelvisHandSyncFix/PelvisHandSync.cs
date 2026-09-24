@@ -82,14 +82,14 @@ namespace PelvisHandSync
             var page = Page.Root.CreatePage("Pelvis Hand Sync", Color.cyan, 0, true);
             page.CreateBool("Enabled", Color.green, enabled, v => { enabled = v; prefEnabled.Value = v; });
             page.CreateBool("Sync To Hand", Color.cyan, syncHand, v => { syncHand = v; prefSyncHand.Value = v; });
-            page.CreateEnum("Sync Hand", Color.cyan, syncHandChoice, v => { syncHandChoice = v; prefSyncHandChoice.Value = v; });
+            page.CreateEnum("Sync Hand", Color.cyan, syncHandChoice, v => { syncHandChoice = (HandChoice)v; prefSyncHandChoice.Value = syncHandChoice; });
             page.CreateBool("Hips", Color.yellow, hipsEnabled, v => { hipsEnabled = v; prefHipsEnabled.Value = v; });
             page.CreateBool("Chest", Color.yellow, chestEnabled, v => { chestEnabled = v; prefChestEnabled.Value = v; });
             page.CreateBool("Waist", Color.yellow, waistEnabled, v => { waistEnabled = v; prefWaistEnabled.Value = v; });
 
             var sway = page.CreatePage("Swaying Animations", Color.cyan);
             sway.CreateBool("Enabled", Color.green, swayEnabled, v => { swayEnabled = v; prefSwayEnabled.Value = v; });
-            sway.CreateEnum("Sway Type", Color.cyan, swayType, v => { swayType = v; prefSwayType.Value = v; });
+            sway.CreateEnum("Sway Type", Color.cyan, swayType, v => { swayType = (SwayType)v; prefSwayType.Value = swayType; });
             sway.CreateFloat("Speed", Color.cyan, swaySpeed, 1f, 5f, .1f, v => { swaySpeed = Mathf.Clamp(v,1f,5f); prefSwaySpeed.Value=swaySpeed; });
             sway.CreateFloat("Amount", Color.cyan, swayAmount, 0f, 20f, .5f, v => { swayAmount = Mathf.Clamp(v,0f,20f); prefSwayAmount.Value=swayAmount; });
             sway.CreateBool("Only At Low HP", Color.yellow, onlyLowHp, v => { onlyLowHp=v; prefOnlyLowHp.Value=v; });
@@ -98,9 +98,9 @@ namespace PelvisHandSync
             sway.CreateFloat("Ragdoll Trigger HP", Color.yellow, ragdollHp*100f, 10f, 100f, 1f, v => { ragdollHp=Mathf.Clamp(v/100f,.10f,1f); prefRagdollHp.Value=ragdollHp; });
 
             var input = page.CreatePage("Toggle Input", Color.white);
-            input.CreateEnum("Input Mode", Color.white, inputMode, v => { inputMode=v; prefInputMode.Value=v; });
-            input.CreateEnum("Controller Hand", Color.white, toggleControllerHand, v => { toggleControllerHand=v; prefToggleControllerHand.Value=v; });
-            input.CreateEnum("Controller Button", Color.white, toggleButton, v => { toggleButton=v; prefToggleButton.Value=v; });
+            input.CreateEnum("Input Mode", Color.white, inputMode, v => { inputMode=(InputMode)v; prefInputMode.Value=inputMode; });
+            input.CreateEnum("Controller Hand", Color.white, toggleControllerHand, v => { toggleControllerHand=(HandChoice)v; prefToggleControllerHand.Value=toggleControllerHand; });
+            input.CreateEnum("Controller Button", Color.white, toggleButton, v => { toggleButton=(ControllerButton)v; prefToggleButton.Value=toggleButton; });
             input.CreateFunction("Save Settings", Color.green, () => prefs.SaveToFile());
         }
 
