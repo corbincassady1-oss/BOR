@@ -8,6 +8,8 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Remove="MarrowStub/**" />
+    <None Remove="MarrowStub/**" />
     <PackageReference Include="LavaGang.MelonLoader" Version="0.7.2" />
     <PackageReference Include="UnityEngine.Modules" Version="2021.3.16" />
     <Reference Include="BoneLib"><HintPath>$(MSBuildProjectDirectory)/lib/BoneLib.dll</HintPath><Private>False</Private></Reference>
