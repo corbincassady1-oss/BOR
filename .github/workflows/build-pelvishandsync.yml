@@ -18,6 +18,10 @@ jobs:
           unzip -q bonelib.zip -d bonelib
           find bonelib -name BoneLib.dll -exec cp {} PelvisHandSyncFix/lib/BoneLib.dll \;
           test -s PelvisHandSyncFix/lib/BoneLib.dll
+      - name: Build compile-time Marrow stub
+        run: |
+          dotnet build PelvisHandSyncFix/MarrowStub/MarrowStub.csproj -c Release --nologo
+          cp PelvisHandSyncFix/MarrowStub/bin/Release/net6.0/Il2CppSLZ.Marrow.dll PelvisHandSyncFix/lib/Il2CppSLZ.Marrow.dll
       - name: Build
         run: dotnet build PelvisHandSyncFix/PelvisHandSync.csproj -c Release --nologo
       - name: Verify
