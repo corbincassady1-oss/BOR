@@ -6,23 +6,11 @@
     <Version>1.3.0</Version>
     <Authors>OpenAI</Authors>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
-    <RestoreAdditionalProjectSources>https://api.nuget.org/v3/index.json</RestoreAdditionalProjectSources>
   </PropertyGroup>
-  <ItemGroup Condition="'$(BONELAB_DIR)' == ''">
+  <ItemGroup>
     <PackageReference Include="LavaGang.MelonLoader" Version="0.7.2" />
     <PackageReference Include="UnityEngine.Modules" Version="2021.3.16" />
-    <Reference Include="BoneLib">
-      <HintPath>$(MSBuildProjectDirectory)/lib/BoneLib.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-  </ItemGroup>
-  <ItemGroup Condition="'$(BONELAB_DIR)' != ''">
-    <Reference Include="MelonLoader"><HintPath>$(BONELAB_DIR)/MelonLoader/net6/MelonLoader.dll</HintPath><Private>False</Private></Reference>
-    <Reference Include="0Harmony"><HintPath>$(BONELAB_DIR)/MelonLoader/net6/0Harmony.dll</HintPath><Private>False</Private></Reference>
-    <Reference Include="Il2CppInterop.Common"><HintPath>$(BONELAB_DIR)/MelonLoader/net6/Il2CppInterop.Common.dll</HintPath><Private>False</Private></Reference>
-    <Reference Include="Il2CppInterop.Runtime"><HintPath>$(BONELAB_DIR)/MelonLoader/net6/Il2CppInterop.Runtime.dll</HintPath><Private>False</Private></Reference>
-    <Reference Include="UnityEngine.CoreModule"><HintPath>$(BONELAB_DIR)/BONELAB_Data/Managed/UnityEngine.CoreModule.dll</HintPath><Private>False</Private></Reference>
-    <Reference Include="UnityEngine.InputLegacyModule"><HintPath>$(BONELAB_DIR)/BONELAB_Data/Managed/UnityEngine.InputLegacyModule.dll</HintPath><Private>False</Private></Reference>
-    <Reference Include="BoneLib"><HintPath>$(BONELAB_DIR)/Mods/BoneLib.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="BoneLib"><HintPath>$(MSBuildProjectDirectory)/lib/BoneLib.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="Il2CppSLZ.Marrow"><HintPath>$(MSBuildProjectDirectory)/lib/Il2CppSLZ.Marrow.dll</HintPath><Private>False</Private></Reference>
   </ItemGroup>
 </Project>
