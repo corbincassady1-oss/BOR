@@ -1,0 +1,39 @@
+name: Build Pelvis Health Sway
+
+on:
+  push:
+    paths:
+      - "PelvisHandSyncHealthSway/**"
+      - ".github/workflows/build-pelvis-health-sway.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "6.0.x"
+      - name: Download MelonLoader 0.6.6 reference
+        shell: bash
+        run: |
+          mkdir -p PelvisHandSyncHealthSway/refs /tmp/ml
+          gh release download v0.6.6 -R LavaGang/MelonLoader -D /tmp/ml -p "*.zip" --clobber
+          ZIP="$(find /tmp/ml -type f -name '*.zip' | head -n 1)"
+          unzip -q "$ZIP" -d /tmp/ml/extracted
+          ML="$(find /tmp/ml/extracted -type f -name 'MelonLoader.dll' | head -n 1)"
+          test -n "$ML"
+          cp "$ML" PelvisHandSyncHealthSway/refs/MelonLoader.dll
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Restore
+        run: dotnet restore PelvisHandSyncHealthSway/PelvisHealthSway.csproj
+      - name: Build
+        run: dotnet build PelvisHandSyncHealthSway/PelvisHealthSway.csproj -c Release --no-restore
+      - name: Upload DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: PelvisHealthSway
+          path: PelvisHandSyncHealthSway/bin/Release/net6.0/PelvisHealthSway.dll
+          if-no-files-found: error
