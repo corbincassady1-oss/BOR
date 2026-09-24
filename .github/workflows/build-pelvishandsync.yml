@@ -13,18 +13,18 @@ jobs:
           dotnet-version: 6.0.x
       - name: Get BoneLib
         run: |
-          mkdir -p lib
+          mkdir -p PelvisHandSyncFix/lib
           curl -L --fail -o bonelib.zip https://github.com/yowchap/BoneLib/releases/download/v3.2.2/BoneLib.zip
           unzip -q bonelib.zip -d bonelib
-          find bonelib -name BoneLib.dll -exec cp {} lib/BoneLib.dll \;
-          test -s lib/BoneLib.dll
+          find bonelib -name BoneLib.dll -exec cp {} PelvisHandSyncFix/lib/BoneLib.dll \;
+          test -s PelvisHandSyncFix/lib/BoneLib.dll
       - name: Build
-        run: dotnet build PelvisHandSync.csproj -c Release --nologo
+        run: dotnet build PelvisHandSyncFix/PelvisHandSync.csproj -c Release --nologo
       - name: Verify
         run: |
-          test -s bin/Release/net6.0/PelvisHandSync.dll
-          file bin/Release/net6.0/PelvisHandSync.dll
+          test -s PelvisHandSyncFix/bin/Release/net6.0/PelvisHandSync.dll
+          file PelvisHandSyncFix/bin/Release/net6.0/PelvisHandSync.dll
       - uses: actions/upload-artifact@v4
         with:
           name: PelvisHandSync-fixed
-          path: bin/Release/net6.0/PelvisHandSync.dll
+          path: PelvisHandSyncFix/bin/Release/net6.0/PelvisHandSync.dll
