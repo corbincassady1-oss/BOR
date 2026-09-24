@@ -8,10 +8,10 @@ using HarmonyLib;
 
 namespace PelvisHealthSway {
  public class Mod : MelonMod {
-  static Harmony harmony;
+  static HarmonyLib.Harmony harmony;
   public override void OnInitializeMelon() {
    try {
-    harmony=new Harmony("OpenAI.PelvisHandSync.HealthSway");
+    harmony=new HarmonyLib.Harmony("OpenAI.PelvisHandSync.HealthSway");
     Type t=FindType("PelvisHandSync.Main")??FindType("PelvisHandSync.PelvisHandSync");
     if(t!=null){MethodInfo u=t.GetMethod("OnUpdate",BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic);MethodInfo p=typeof(Mod).GetMethod("Postfix",BindingFlags.Static|BindingFlags.NonPublic);if(u!=null)harmony.Patch(u,postfix:new HarmonyMethod(p));}
     HealthSway.Initialize(); MelonLogger.Msg("[Pelvis Health Sway] Loaded.");
