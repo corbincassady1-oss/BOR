@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net6.0</TargetFramework><Nullable>disable</Nullable><ImplicitUsings>disable</ImplicitUsings><AssemblyName>PelvisHealthSway</AssemblyName></PropertyGroup>
+  <ItemGroup><Reference Include="MelonLoader"><HintPath>refs/MelonLoader.dll</HintPath></Reference><PackageReference Include="Lib.Harmony" Version="2.4.2" /></ItemGroup>
+</Project>
