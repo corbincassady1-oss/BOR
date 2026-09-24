@@ -40,7 +40,7 @@ namespace PelvisHealthSway {
    }catch{}
   }
   static void BuildMenu(){
-   Type pt=Type.GetType("BoneLib.BoneMenu.Page, BoneLib");if(pt==null)return;object root=StaticMember("BoneLib.BoneMenu.Page","Root");if(root==null)return;Type ct=Type("UnityEngine.Color");
+   System.Type pt=System.Type.GetType("BoneLib.BoneMenu.Page, BoneLib");if(pt==null)return;object root=StaticMember("BoneLib.BoneMenu.Page","Root");if(root==null)return;Type ct=Type("UnityEngine.Color");
    object white=Activator.CreateInstance(ct,new object[]{1f,1f,1f,1f});MethodInfo cp=pt.GetMethod("CreatePage",new[]{typeof(string),ct,typeof(int),typeof(bool)});if(cp==null)return;
    object p=cp.Invoke(root,new object[]{"Pelvis Health Sway",white,0,true});if(p==null)return;
    swayEl=Bool(p,"Sway Animation Enabled",true);lowEl=Bool(p,"Only At Low Health",false);minEl=Float(p,"Minimum HP",.10f,.10f,.50f);typeEl=EnumEl(p,"Sway Type",0);speedEl=Float(p,"Sway Speed",3f,1f,5f);ragEl=Bool(p,"Hip Ragdoll",false);ragHpEl=Float(p,"Ragdoll Trigger HP",.50f,.10f,.50f);
