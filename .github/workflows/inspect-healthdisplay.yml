@@ -2,6 +2,8 @@ name: Inspect HealthDisplay DLL
 on:
   push:
     branches: [ healthdisplay-rgb-patch ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 permissions:
   contents: read
@@ -17,6 +19,9 @@ jobs:
         run: |
           mkdir -p HealthDisplayPatch
           base64 -d HealthDisplayPatch/HealthDisplay.dll.gz.b64 | gzip -d > HealthDisplayPatch/HealthDisplay.dll
+      - name: Verify original DLL
+        run: |
+          test "$(stat -c%s HealthDisplayPatch/HealthDisplay.dll)" -eq 10240
       - name: Install ILSpy
         run: dotnet tool install --tool-path ./tools ilspycmd
       - name: Decompile
