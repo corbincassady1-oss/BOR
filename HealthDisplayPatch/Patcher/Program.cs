@@ -1,10 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using dnlib.DotNet;
 using dnlib.DotNet.Emit;
-using dnlib.DotNet.Writer;
 
 static class Program
 {
@@ -36,10 +34,7 @@ static class Program
             m.Name == "RefreshText");
         onUpdate.Body.Instructions.InsertAfter(refreshCall, Instruction.Create(OpCodes.Call, injectedApply));
 
-        target.Write(output, new ModuleWriterOptions(target)
-        {
-            Logger = DummyLogger.NoThrowInstance
-        });
+        target.Write(output);
     }
 
     static TypeDef InjectType(TypeDef src, ModuleDef target)
@@ -112,12 +107,10 @@ static class Program
                     operand = importer.Import(fieldRef);
                 else if (operand is Local localRef)
                     operand = localMap[localRef];
-                else if (operand is Instruction)
-                    operand = null;
-                else if (operand is Instruction[])
+                else if (operand is Instruction || operand is Instruction[])
                     operand = null;
 
-                var ni = Instruction.Create(instruction.OpCode, operand);
+                var ni = new Instruction(instruction.OpCode, operand);
                 nm.Body.Instructions.Add(ni);
                 instructionMap[instruction] = ni;
             }
@@ -150,12 +143,5 @@ static class Program
 
         public override FieldDef Resolve(FieldDef fieldDef) =>
             map.TryGetValue(fieldDef, out var value) ? (FieldDef)value : null;
-    }
-
-    sealed class DummyLogger : ILogger
-    {
-        public static readonly DummyLogger NoThrowInstance = new();
-        public bool IgnoresEvent(ILogger.Event @event) => true;
-        public void Log(object sender, ILogger.Event @event, string format, params object[] args) { }
     }
 }
