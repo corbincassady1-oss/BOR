@@ -1,0 +1,40 @@
+name: Build HealthDisplay RGB DLL
+on:
+  push:
+    branches: [ healthdisplay-rgb-patch ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Restore original DLL
+        run: |
+          mkdir -p HealthDisplayPatch/work
+          gzip -dc HealthDisplayPatch/HealthDisplay.dll.gz.b64 > HealthDisplayPatch/work/HealthDisplay.original.dll
+          test "$(stat -c%s HealthDisplayPatch/work/HealthDisplay.original.dll)" -eq 10240
+      - name: Build helper
+        run: dotnet build HealthDisplayPatch/Helper/HealthColorCustomization.csproj -c Release --nologo
+      - name: Build patcher
+        run: dotnet build HealthDisplayPatch/Patcher/HealthDisplayPatcher.csproj -c Release --nologo
+      - name: Patch original assembly
+        run: |
+          dotnet HealthDisplayPatch/Patcher/bin/Release/net8.0/HealthDisplayPatcher.dll             HealthDisplayPatch/work/HealthDisplay.original.dll             HealthDisplayPatch/Helper/bin/Release/net6.0/HealthColorCustomization.dll             HealthDisplayPatch/work/HealthDisplay.dll
+          test -f HealthDisplayPatch/work/HealthDisplay.dll
+      - name: Verify assembly
+        run: |
+          file HealthDisplayPatch/work/HealthDisplay.dll
+          test "$(stat -c%s HealthDisplayPatch/work/HealthDisplay.dll)" -gt 10240
+      - name: Upload DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: HealthDisplay-RGB-DLL
+          path: HealthDisplayPatch/work/HealthDisplay.dll
+          if-no-files-found: error

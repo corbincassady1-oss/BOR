@@ -1,0 +1,34 @@
+name: Inspect HealthDisplay DLL
+on:
+  push:
+    branches: [ healthdisplay-rgb-patch ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Restore original DLL
+        run: |
+          mkdir -p HealthDisplayPatch
+          gzip -dc HealthDisplayPatch/HealthDisplay.dll.gz.b64 > HealthDisplayPatch/HealthDisplay.dll
+      - name: Verify original DLL
+        run: |
+          test "$(stat -c%s HealthDisplayPatch/HealthDisplay.dll)" -eq 10240
+      - name: Install ILSpy
+        run: dotnet tool install --tool-path ./tools ilspycmd
+      - name: Decompile
+        run: |
+          ./tools/ilspycmd -p -o HealthDisplayPatch/decompiled HealthDisplayPatch/HealthDisplay.dll
+      - name: Upload decompiled source
+        uses: actions/upload-artifact@v4
+        with:
+          name: HealthDisplay-decompiled
+          path: HealthDisplayPatch/decompiled
