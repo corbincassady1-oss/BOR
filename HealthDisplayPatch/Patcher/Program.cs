@@ -8,12 +8,9 @@ static class Program
 {
     static void Main(string[] args)
     {
-        string input = args[0];
-        string helperPath = args[1];
+        ModuleDefMD target = ModuleDefMD.Load(args[0]);
+        ModuleDefMD helper = ModuleDefMD.Load(args[1]);
         string output = args[2];
-
-        ModuleDefMD target = ModuleDefMD.Load(input);
-        ModuleDefMD helper = ModuleDefMD.Load(helperPath);
 
         TypeDef helperType = helper.Types.First(t => t.FullName == "HealthDisplayPatch.HealthColorCustomization");
         TypeDef injected = InjectType(helperType, target);
@@ -21,18 +18,17 @@ static class Program
         TypeDef mod = target.Types.First(t => t.FullName == "HealthDisplay.HealthDisplayMod");
         MethodDef buildMenu = mod.Methods.First(m => m.Name == "BuildMenu");
         MethodDef onUpdate = mod.Methods.First(m => m.Name == "OnUpdate");
-
         MethodDef injectedBuild = injected.Methods.First(m => m.Name == "BuildMenu");
         MethodDef injectedApply = injected.Methods.First(m => m.Name == "ApplyColor");
 
         Instruction finalRet = buildMenu.Body.Instructions.Last(i => i.OpCode == OpCodes.Ret);
-        buildMenu.Body.Instructions.InsertBefore(finalRet, Instruction.Create(OpCodes.Call, injectedBuild));
+        buildMenu.Body.Instructions.Insert(buildMenu.Body.Instructions.IndexOf(finalRet),
+            Instruction.Create(OpCodes.Call, injectedBuild));
 
-        Instruction refreshCall = onUpdate.Body.Instructions.First(i =>
-            i.OpCode == OpCodes.Call &&
-            i.Operand is IMethod m &&
-            m.Name == "RefreshText");
-        onUpdate.Body.Instructions.InsertAfter(refreshCall, Instruction.Create(OpCodes.Call, injectedApply));
+        int refreshIndex = onUpdate.Body.Instructions.IndexOf(onUpdate.Body.Instructions.First(i =>
+            i.OpCode == OpCodes.Call && i.Operand is IMethod m && m.Name == "RefreshText"));
+        onUpdate.Body.Instructions.Insert(refreshIndex + 1,
+            Instruction.Create(OpCodes.Call, injectedApply));
 
         target.Write(output);
     }
@@ -65,10 +61,7 @@ static class Program
         }
 
         foreach (FieldDef field in src.Fields)
-        {
-            var nf = (FieldDef)map[field];
-            nf.Signature = importer.Import(field.Signature);
-        }
+            ((FieldDef)map[field]).Signature = importer.Import(field.Signature);
 
         foreach (MethodDef method in src.Methods)
         {
@@ -78,7 +71,11 @@ static class Program
 
             if (!method.HasBody) continue;
 
-            nm.Body = new CilBody(method.Body.InitLocals)
+            nm.Body = new CilBody(
+                method.Body.InitLocals,
+                new List<Instruction>(),
+                new List<ExceptionHandler>(),
+                new List<Local>())
             {
                 MaxStack = method.Body.MaxStack
             };
@@ -94,7 +91,7 @@ static class Program
             var instructionMap = new Dictionary<Instruction, Instruction>();
             foreach (Instruction instruction in method.Body.Instructions)
             {
-                object operand = ImportOperand(instruction.Operand, src, map, importer, localMap);
+                object operand = ImportOperand(instruction.Operand, map, importer, localMap);
                 var ni = new Instruction(instruction.OpCode, operand);
                 nm.Body.Instructions.Add(ni);
                 instructionMap[instruction] = ni;
@@ -117,7 +114,6 @@ static class Program
 
     static object ImportOperand(
         object operand,
-        TypeDef src,
         Dictionary<IDnlibDef, IDnlibDef> map,
         Importer importer,
         Dictionary<Local, Local> localMap)
