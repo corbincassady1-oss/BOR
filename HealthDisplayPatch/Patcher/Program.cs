@@ -40,10 +40,7 @@ static class Program
     static TypeDef InjectType(TypeDef src, ModuleDef target)
     {
         var map = new Dictionary<IDnlibDef, IDnlibDef>();
-        var importer = new Importer(target, ImporterOptions.TryToUseTypeDefs)
-        {
-            Resolver = new MapResolver(map)
-        };
+        var importer = new Importer(target, ImporterOptions.TryToUseTypeDefs);
 
         var dst = new TypeDefUser(src.Namespace, src.Name)
         {
@@ -97,19 +94,7 @@ static class Program
             var instructionMap = new Dictionary<Instruction, Instruction>();
             foreach (Instruction instruction in method.Body.Instructions)
             {
-                object operand = instruction.Operand;
-
-                if (operand is IType type)
-                    operand = importer.Import(type);
-                else if (operand is IMethod calledMethod)
-                    operand = importer.Import(calledMethod);
-                else if (operand is IField fieldRef)
-                    operand = importer.Import(fieldRef);
-                else if (operand is Local localRef)
-                    operand = localMap[localRef];
-                else if (operand is Instruction || operand is Instruction[])
-                    operand = null;
-
+                object operand = ImportOperand(instruction.Operand, src, map, importer, localMap);
                 var ni = new Instruction(instruction.OpCode, operand);
                 nm.Body.Instructions.Add(ni);
                 instructionMap[instruction] = ni;
@@ -130,18 +115,40 @@ static class Program
         return dst;
     }
 
-    sealed class MapResolver : ImportResolver
+    static object ImportOperand(
+        object operand,
+        TypeDef src,
+        Dictionary<IDnlibDef, IDnlibDef> map,
+        Importer importer,
+        Dictionary<Local, Local> localMap)
     {
-        readonly Dictionary<IDnlibDef, IDnlibDef> map;
-        public MapResolver(Dictionary<IDnlibDef, IDnlibDef> map) => this.map = map;
+        if (operand is IType type)
+        {
+            if (type is TypeDef td && map.TryGetValue(td, out IDnlibDef mappedType))
+                return mappedType;
+            return importer.Import(type);
+        }
 
-        public override TypeDef Resolve(TypeDef typeDef) =>
-            map.TryGetValue(typeDef, out var value) ? (TypeDef)value : null;
+        if (operand is IMethod method)
+        {
+            if (method is MethodDef md && map.TryGetValue(md, out IDnlibDef mappedMethod))
+                return mappedMethod;
+            return importer.Import(method);
+        }
 
-        public override MethodDef Resolve(MethodDef methodDef) =>
-            map.TryGetValue(methodDef, out var value) ? (MethodDef)value : null;
+        if (operand is IField field)
+        {
+            if (field is FieldDef fd && map.TryGetValue(fd, out IDnlibDef mappedField))
+                return mappedField;
+            return importer.Import(field);
+        }
 
-        public override FieldDef Resolve(FieldDef fieldDef) =>
-            map.TryGetValue(fieldDef, out var value) ? (FieldDef)value : null;
+        if (operand is Local local)
+            return localMap[local];
+
+        if (operand is Instruction || operand is Instruction[])
+            return null;
+
+        return operand;
     }
 }
