@@ -379,7 +379,7 @@ namespace FusionPlayerTeleporter
                     nameof(PermissionPrefix),
                     BindingFlags.Static | BindingFlags.NonPublic);
 
-                new Harmony("com.openai.fusionteleporter").Patch(
+                new HarmonyLib.Harmony("com.openai.fusionteleporter").Patch(
                     original,
                     prefix: new HarmonyMethod(prefix));
 
