@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+<PropertyGroup><TargetFramework>netstandard2.1</TargetFramework><AssemblyName>FusionPlayerTeleporter</AssemblyName><RootNamespace>FusionPlayerTeleporter</RootNamespace><OutputPath>bin/$(Configuration)/</OutputPath><AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath><GenerateAssemblyInfo>false</GenerateAssemblyInfo><LangVersion>latest</LangVersion><Nullable>disable</Nullable></PropertyGroup>
+<ItemGroup><Reference Include="MelonLoader"><HintPath>References/MelonLoader.dll</HintPath><Private>false</Private></Reference></ItemGroup>
+<Target Name="CopyFinalDll" AfterTargets="Build"><Copy SourceFiles="$(TargetPath)" DestinationFiles="$(MSBuildProjectDirectory)/FusionPlayerTeleporter.dll" /></Target>
+</Project>
