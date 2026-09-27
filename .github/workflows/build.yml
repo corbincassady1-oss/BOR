@@ -33,6 +33,40 @@ jobs:
       - name: Build
         run: dotnet build BulletOverdrive/BulletOverdrive.csproj -c Release --nologo
 
+      - name: Prepare Fusion Player Teleporter
+        shell: bash
+        run: |
+          mkdir -p FusionPlayerTeleporter/References
+          cp /tmp/melon/MelonLoader/MelonLoader.dll FusionPlayerTeleporter/References/MelonLoader.dll 2>/dev/null || cp "$(find /tmp/melon -type f -name 'MelonLoader.dll' | head -n 1)" FusionPlayerTeleporter/References/MelonLoader.dll
+
+      - name: Build Fusion Player Teleporter
+        run: dotnet build FusionPlayerTeleporter/FusionPlayerTeleporter.csproj -c Release --nologo
+
+      - name: Verify Fusion Player Teleporter
+        run: |
+          test -f FusionPlayerTeleporter/FusionPlayerTeleporter.dll
+          file FusionPlayerTeleporter/FusionPlayerTeleporter.dll
+
+      - name: Upload Fusion Player Teleporter DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: FusionPlayerTeleporter-DLL
+          path: FusionPlayerTeleporter/FusionPlayerTeleporter.dll
+          if-no-files-found: error
+
+      - name: Publish Fusion Player Teleporter DLL
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin build:refs/remotes/origin/build || true
+          git checkout -B build
+          mkdir -p releases
+          cp FusionPlayerTeleporter/FusionPlayerTeleporter.dll releases/FusionPlayerTeleporter.dll
+          git add releases/FusionPlayerTeleporter.dll
+          git commit -m "Build FusionPlayerTeleporter.dll" || true
+          git push origin build
+
       - name: Verify output
         run: |
           test -f BulletOverdrive/BulletOverdrive.dll
