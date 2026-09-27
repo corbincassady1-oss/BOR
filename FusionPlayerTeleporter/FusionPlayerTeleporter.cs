@@ -38,3 +38,5 @@ static void AllHere(){try{var p=LocalPos();foreach(var x in Remote())Send(x.Item
 static void AllAway(){try{var p=AwayPos();foreach(var x in Remote())Send(x.Item1,p);}catch(Exception e){MelonLogger.Error("[Fusion Player Teleporter] "+e);}}
 static void Status(){MelonLogger.Msg("[Fusion Player Teleporter] Fusion 1.14.2 | "+(Host()?"HOST":"CLIENT")+" | host authority is enforced by Fusion itself.");}
 }}
+
+// Build marker: Fusion Player Teleporter 1.1.0
