@@ -1,0 +1,30 @@
+name: Build LegBeltMovementAnimations
+on:
+  push:
+    branches: [legbelt-movement-animations]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 6.0.x
+      - name: Get BoneLib
+        run: |
+          mkdir -p LegBeltMovementAnimations/lib
+          curl -L --fail -o bonelib.zip https://github.com/yowchap/BoneLib/releases/download/v3.2.2/BoneLib.zip
+          unzip -q bonelib.zip -d bonelib
+          find bonelib -name BoneLib.dll -exec cp {} LegBeltMovementAnimations/lib/BoneLib.dll \;
+          test -s LegBeltMovementAnimations/lib/BoneLib.dll
+      - name: Build
+        run: dotnet build LegBeltMovementAnimations/LegBeltMovementAnimations.csproj -c Release --nologo
+      - name: Verify
+        run: |
+          test -s LegBeltMovementAnimations/bin/Release/net6.0/LegBeltMovementAnimations.dll
+          file LegBeltMovementAnimations/bin/Release/net6.0/LegBeltMovementAnimations.dll
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LegBeltMovementAnimations
+          path: LegBeltMovementAnimations/bin/Release/net6.0/LegBeltMovementAnimations.dll
