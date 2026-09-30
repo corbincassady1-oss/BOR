@@ -6,7 +6,7 @@ using UnityEngine.XR;
 using BoneLib;
 using BoneLib.BoneMenu;
 
-[assembly: MelonInfo(typeof(PelvisHandSync.Main), "PelvisHandSync", "1.3.0", "OpenAI")]
+[assembly: MelonInfo(typeof(PelvisHandSync.Main), "PelvisHandSync", "1.4.0", "OpenAI")]
 [assembly: MelonGame("Stress Level Zero", "BONELAB")]
 
 namespace PelvisHandSync
@@ -28,7 +28,7 @@ namespace PelvisHandSync
         private static MelonPreferences_Entry<SwayType> prefSwayType;
         private static MelonPreferences_Entry<float> prefSwaySpeed, prefSwayAmount, prefMinHp, prefRagdollHp;
 
-        private static bool enabled, syncHand, hipsEnabled, chestEnabled, waistEnabled, swayEnabled, onlyLowHp, hipRagdoll, wasControllerButtonPressed;
+        private static bool enabled, syncHand, hipsEnabled, chestEnabled, waistEnabled, swayEnabled, onlyLowHp, hipRagdoll, hipsRagdolled, waistRagdolled, wasControllerButtonPressed;
         private static HandChoice syncHandChoice, toggleControllerHand;
         private static InputMode inputMode;
         private static KeyCode toggleKey;
@@ -37,7 +37,8 @@ namespace PelvisHandSync
         private static float swaySpeed, swayAmount, minHp, ragdollHp;
 
         private Quaternion pelvisBaseRotation = Quaternion.identity;
-        private bool pelvisBaseCaptured, ragdollState;
+        private Quaternion waistBaseRotation = Quaternion.identity;
+        private bool pelvisBaseCaptured, waistBaseCaptured, ragdollState;
 
         public override void OnInitializeMelon()
         {
@@ -72,7 +73,7 @@ namespace PelvisHandSync
                 hipRagdoll = prefHipRagdoll.Value; ragdollHp = Mathf.Clamp(prefRagdollHp.Value, .10f, 1f);
 
                 BuildMenu();
-                MelonLogger.Msg("PelvisHandSync 1.3.0 initialized.");
+                MelonLogger.Msg("PelvisHandSync 1.4.0 initialized.");
             }
             catch (Exception ex) { MelonLogger.Error("PelvisHandSync initialization failed: " + ex); }
         }
@@ -86,6 +87,8 @@ namespace PelvisHandSync
             page.CreateBool("Hips", Color.yellow, hipsEnabled, v => { hipsEnabled = v; prefHipsEnabled.Value = v; });
             page.CreateBool("Chest", Color.yellow, chestEnabled, v => { chestEnabled = v; prefChestEnabled.Value = v; });
             page.CreateBool("Waist", Color.yellow, waistEnabled, v => { waistEnabled = v; prefWaistEnabled.Value = v; });
+            page.CreateBool("Hips Ragdoll", Color.magenta, hipsRagdolled, v => { hipsRagdolled = v; });
+            page.CreateBool("Waist Ragdoll", Color.magenta, waistRagdolled, v => { waistRagdolled = v; });
 
             var sway = page.CreatePage("Swaying Animations", Color.cyan);
             sway.CreateBool("Enabled", Color.green, swayEnabled, v => { swayEnabled = v; prefSwayEnabled.Value = v; });
@@ -119,13 +122,16 @@ namespace PelvisHandSync
 
                 if (syncHand && hand != null)
                 {
-                    if (hipsEnabled && physicsRig.m_pelvis != null) ApplyHandRotation(physicsRig.m_pelvis, hand.rotation);
+                    if (hipsEnabled && physicsRig.m_pelvis != null && !hipsRagdolled) ApplyHandRotation(physicsRig.m_pelvis, hand.rotation);
                     if (chestEnabled && physicsRig.m_chest != null) ApplyHandRotation(physicsRig.m_chest, hand.rotation);
-                    if (waistEnabled && physicsRig.m_spine != null) ApplyHandRotation(physicsRig.m_spine, hand.rotation);
+                    if (waistEnabled && physicsRig.m_spine != null && !waistRagdolled) ApplyHandRotation(physicsRig.m_spine, hand.rotation);
                 }
 
                 if (hipsEnabled && physicsRig.m_pelvis != null)
                     ApplySway(physicsRig.m_pelvis);
+
+                if (waistEnabled && physicsRig.m_spine != null)
+                    ApplyWaistRagdoll(physicsRig.m_spine);
             }
             catch (Exception ex) { MelonLogger.Error("PelvisHandSync update error: " + ex.Message); }
         }
@@ -138,27 +144,82 @@ namespace PelvisHandSync
 
         private void ApplySway(Transform pelvis)
         {
-            if (!swayEnabled) return;
             float hp = GetHealthPercent();
-            if (onlyLowHp && hp > minHp) return;
+            bool lowHpAllowed = !onlyLowHp || hp <= minHp;
+            bool healthRagdoll = hipRagdoll && hp <= ragdollHp;
 
-            float angle = Mathf.Sin(Time.time * Mathf.Max(.01f, swaySpeed)) * swayAmount;
-            Quaternion offset = swayType == SwayType.ForwardBack
-                ? Quaternion.Euler(angle,0f,0f)
-                : Quaternion.Euler(0f,0f,angle);
-
-            if (hipRagdoll && hp <= ragdollHp)
+            if (hipsRagdolled || healthRagdoll)
             {
-                if (!ragdollState) { ragdollState=true; pelvisBaseCaptured=false; }
-                if (!pelvisBaseCaptured) { pelvisBaseRotation=pelvis.rotation; pelvisBaseCaptured=true; }
-                float loose = Mathf.Sin(Time.time * Mathf.Max(.5f,swaySpeed*1.5f))*Mathf.Max(swayAmount,8f);
-                pelvis.rotation = pelvisBaseRotation * Quaternion.Euler(loose,0f,loose*.35f);
+                if (!pelvisBaseCaptured)
+                {
+                    pelvisBaseRotation = pelvis.rotation;
+                    pelvisBaseCaptured = true;
+                }
+
+                float t = Time.time * Mathf.Max(.25f, swaySpeed);
+                float roll = Mathf.Sin(t * 0.91f) * Mathf.Max(swayAmount, 7f);
+                float pitch = Mathf.Sin(t * 1.17f + 1.1f) * Mathf.Max(swayAmount * .65f, 4f);
+                float yaw = Mathf.Sin(t * 0.63f + 2.4f) * Mathf.Max(swayAmount * .35f, 2f);
+                pelvis.rotation = Quaternion.Slerp(pelvis.rotation,
+                    pelvisBaseRotation * Quaternion.Euler(pitch, yaw, roll), Mathf.Clamp01(Time.deltaTime * 8f));
+                ragdollState = true;
+                return;
+            }
+
+            ragdollState = false;
+            pelvisBaseCaptured = false;
+            if (!swayEnabled || !lowHpAllowed) return;
+
+            // Layered, smoothed motion avoids cumulative quaternion multiplication and gives
+            // the pelvis a natural secondary-motion feel instead of a rigid sine-wave rotation.
+            float t2 = Time.time * Mathf.Max(.01f, swaySpeed);
+            float primary = Mathf.Sin(t2);
+            float secondary = Mathf.Sin(t2 * 1.73f + .8f);
+            float tertiary = Mathf.Sin(t2 * .57f + 2.1f);
+            float amount = swayAmount;
+
+            float pitch;
+            float roll;
+            float yaw;
+
+            if (swayType == SwayType.ForwardBack)
+            {
+                pitch = primary * amount + secondary * amount * .22f;
+                roll = secondary * amount * .28f;
+                yaw = tertiary * amount * .12f;
             }
             else
             {
-                ragdollState=false; pelvisBaseCaptured=false;
-                pelvis.rotation *= offset;
+                roll = primary * amount + secondary * amount * .22f;
+                pitch = secondary * amount * .20f;
+                yaw = tertiary * amount * .18f;
             }
+
+            Quaternion target = pelvis.rotation * Quaternion.Euler(pitch, yaw, roll);
+            pelvis.rotation = Quaternion.Slerp(pelvis.rotation, target, Mathf.Clamp01(Time.deltaTime * 10f));
+        }
+
+        private void ApplyWaistRagdoll(Transform waist)
+        {
+            if (!waistRagdolled)
+            {
+                waistBaseCaptured = false;
+                return;
+            }
+
+            if (!waistBaseCaptured)
+            {
+                waistBaseRotation = waist.rotation;
+                waistBaseCaptured = true;
+            }
+
+            float t = Time.time * Mathf.Max(.25f, swaySpeed * .9f);
+            float pitch = Mathf.Sin(t * 1.07f + .4f) * Mathf.Max(swayAmount, 6f);
+            float roll = Mathf.Sin(t * .79f + 1.7f) * Mathf.Max(swayAmount * .8f, 5f);
+            float yaw = Mathf.Sin(t * .51f + 2.8f) * Mathf.Max(swayAmount * .25f, 2f);
+
+            Quaternion target = waistBaseRotation * Quaternion.Euler(pitch, yaw, roll);
+            waist.rotation = Quaternion.Slerp(waist.rotation, target, Mathf.Clamp01(Time.deltaTime * 7f));
         }
 
         private static float GetHealthPercent()
