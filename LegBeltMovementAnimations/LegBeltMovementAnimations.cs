@@ -43,6 +43,8 @@ namespace LegBeltMovementAnimations
         private float turnMotion;
         private float lastYaw;
         private float scanTimer;
+        private bool groundedState = true;
+        private int groundedCheckFrames;
 
         public override void OnInitializeMelon()
         {
@@ -101,7 +103,7 @@ namespace LegBeltMovementAnimations
             try
             {
                 if (!enabled) return;
-                if (Time.frameCount % 30 == 0 || root == null) FindTargets();
+                if (root == null || pelvis == null || Time.frameCount % 120 == 0) FindTargets();
                 if (root == null || pelvis == null) return;
                 if (!basesCaptured) CaptureBases();
 
@@ -121,7 +123,8 @@ namespace LegBeltMovementAnimations
                 float turn = Mathf.Clamp(yawDelta / 120f, -1f, 1f);
                 turnMotion = Mathf.Lerp(turnMotion, turn, 1f - Mathf.Exp(-dt * 10f));
 
-                bool grounded = IsGrounded();
+                if ((groundedCheckFrames++ % 6) == 0) groundedState = IsGrounded();
+                bool grounded = groundedState;
                 float airFactor = grounded ? 1f : (airborne ? .45f : 0f);
                 if (!grounded && !airborne) motion *= .2f;
 
