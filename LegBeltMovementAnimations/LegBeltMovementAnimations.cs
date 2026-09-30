@@ -28,11 +28,11 @@ namespace LegBeltMovementAnimations
         private static MelonPreferences_Category prefs;
         private static MelonPreferences_Entry<bool> pEnabled, pAirborne, pTurning;
         private static MelonPreferences_Entry<AnimationStyle> pStyle;
-        private static MelonPreferences_Entry<float> pIntensity, pSpeed, pLeg, pBelt, pVertical, pSide;
+        private static MelonPreferences_Entry<float> pIntensity, pSpeed, pLeg, pBelt, pVertical, pSide, pIdle;
 
         private bool enabled, airborne, turning;
         private AnimationStyle style;
-        private float intensity, speed, legAmount, beltAmount, verticalAmount, sideAmount;
+        private float intensity, speed, legAmount, beltAmount, verticalAmount, sideAmount, idleAmount;
 
         private Transform root, pelvis, belt;
         private Transform leftUpper, rightUpper, leftLower, rightLower, leftFoot, rightFoot;
@@ -57,6 +57,7 @@ namespace LegBeltMovementAnimations
                 pBelt = prefs.CreateEntry("BeltMovement", 1f);
                 pVertical = prefs.CreateEntry("VerticalMovement", 1f);
                 pSide = prefs.CreateEntry("SideToSideMovement", 1f);
+                pIdle = prefs.CreateEntry("IdleMovement", 0.35f);
                 pAirborne = prefs.CreateEntry("AirborneMovement", true);
                 pTurning = prefs.CreateEntry("TurningMovement", true);
 
@@ -68,6 +69,7 @@ namespace LegBeltMovementAnimations
                 beltAmount = Mathf.Clamp(pBelt.Value, 0f, 2f);
                 verticalAmount = Mathf.Clamp(pVertical.Value, 0f, 2f);
                 sideAmount = Mathf.Clamp(pSide.Value, 0f, 2f);
+                idleAmount = Mathf.Clamp(pIdle.Value, 0f, 2f);
                 airborne = pAirborne.Value;
                 turning = pTurning.Value;
 
@@ -85,7 +87,8 @@ namespace LegBeltMovementAnimations
             page.CreateFloat("Intensity", Color.white, intensity, 0f, 2f, .05f, v => { intensity = Mathf.Clamp(v,0f,2f); pIntensity.Value=intensity; });
             page.CreateFloat("Animation Speed", Color.white, speed, .25f, 3f, .05f, v => { speed = Mathf.Clamp(v,.25f,3f); pSpeed.Value=speed; });
             page.CreateFloat("Leg Movement", Color.yellow, legAmount, 0f, 2f, .05f, v => { legAmount=Mathf.Clamp(v,0f,2f); pLeg.Value=legAmount; });
-            page.CreateFloat("Belt/Hip Movement", Color.yellow, beltAmount, 0f, 2f, .05f, v => { beltAmount=Mathf.Clamp(v,0f,2f); pBelt.Value=beltAmount; });
+            page.CreateFloat("Hips Movement", Color.yellow, beltAmount, 0f, 2f, .05f, v => { beltAmount=Mathf.Clamp(v,0f,2f); pBelt.Value=beltAmount; });
+            page.CreateFloat("Idle Movement", Color.white, idleAmount, 0f, 2f, .05f, v => { idleAmount=Mathf.Clamp(v,0f,2f); pIdle.Value=idleAmount; });
             page.CreateFloat("Vertical Movement", Color.yellow, verticalAmount, 0f, 2f, .05f, v => { verticalAmount=Mathf.Clamp(v,0f,2f); pVertical.Value=verticalAmount; });
             page.CreateFloat("Side-to-Side", Color.yellow, sideAmount, 0f, 2f, .05f, v => { sideAmount=Mathf.Clamp(v,0f,2f); pSide.Value=sideAmount; });
             page.CreateBool("Airborne Movement", Color.white, airborne, v => { airborne=v; pAirborne.Value=v; });
@@ -108,6 +111,8 @@ namespace LegBeltMovementAnimations
                 lastRootPos = root.position;
 
                 float move = Mathf.Clamp01(planarSpeed / 1.2f);
+                // Keep a subtle animation running while standing still, while preserving full movement response.
+                float animationDrive = Mathf.Max(move, idleAmount * 0.22f);
                 motion = Mathf.Lerp(motion, move, 1f - Mathf.Exp(-dt * 8f));
 
                 float yaw = root.eulerAngles.y;
@@ -120,7 +125,7 @@ namespace LegBeltMovementAnimations
                 float airFactor = grounded ? 1f : (airborne ? .45f : 0f);
                 if (!grounded && !airborne) motion *= .2f;
 
-                Animate(Time.time * speed, motion * airFactor, turnMotion);
+                Animate(Time.time * speed, animationDrive * airFactor, turnMotion, move);
             }
             catch (Exception ex)
             {
@@ -128,13 +133,14 @@ namespace LegBeltMovementAnimations
             }
         }
 
-        private void Animate(float t, float move, float turn)
+        private void Animate(float t, float move, float turn, float actualMove)
         {
             float i = intensity;
             float leg = legAmount * i;
             float beltM = beltAmount * i;
             float vert = verticalAmount * i;
             float side = sideAmount * i;
+            float idle = Mathf.Clamp01(1f - actualMove) * idleAmount * i;
 
             float leftPhase = t;
             float rightPhase = t + Mathf.PI;
@@ -148,6 +154,12 @@ namespace LegBeltMovementAnimations
             float beltPitch = Mathf.Abs(Mathf.Sin(t)) * 3.5f * beltM * move * vert;
             float beltYaw = Mathf.Sin(t * 1.35f) * 5f * beltM * move;
             float sideBob = Mathf.Sin(t * 2f) * 1.8f * side * move * vert;
+            // Idle: gentle alternating leg weight-shift and hip sway when stationary.
+            lPitch += Mathf.Sin(t * 1.15f) * 2.5f * leg * idle;
+            rPitch += Mathf.Sin(t * 1.15f + Mathf.PI) * 2.5f * leg * idle;
+            beltRoll += Mathf.Sin(t * 0.9f) * 2.2f * beltM * idle;
+            beltYaw += Mathf.Sin(t * 0.72f + 0.6f) * 1.8f * beltM * idle;
+            sideBob += Mathf.Sin(t * 0.82f) * 0.9f * side * idle;
 
             switch (style)
             {
