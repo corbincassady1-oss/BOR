@@ -157,11 +157,11 @@ namespace PelvisHandSync
                 }
 
                 float t = Time.time * Mathf.Max(.25f, swaySpeed);
-                float roll = Mathf.Sin(t * 0.91f) * Mathf.Max(swayAmount, 7f);
-                float pitch = Mathf.Sin(t * 1.17f + 1.1f) * Mathf.Max(swayAmount * .65f, 4f);
-                float yaw = Mathf.Sin(t * 0.63f + 2.4f) * Mathf.Max(swayAmount * .35f, 2f);
+                float ragRoll = Mathf.Sin(t * 0.91f) * Mathf.Max(swayAmount, 7f);
+                float ragPitch = Mathf.Sin(t * 1.17f + 1.1f) * Mathf.Max(swayAmount * .65f, 4f);
+                float ragYaw = Mathf.Sin(t * 0.63f + 2.4f) * Mathf.Max(swayAmount * .35f, 2f);
                 pelvis.rotation = Quaternion.Slerp(pelvis.rotation,
-                    pelvisBaseRotation * Quaternion.Euler(pitch, yaw, roll), Mathf.Clamp01(Time.deltaTime * 8f));
+                    pelvisBaseRotation * Quaternion.Euler(ragPitch, ragYaw, ragRoll), Mathf.Clamp01(Time.deltaTime * 8f));
                 ragdollState = true;
                 return;
             }
