@@ -28,3 +28,5 @@ jobs:
         with:
           name: LegBeltMovementAnimations
           path: LegBeltMovementAnimations/bin/Release/net6.0/LegBeltMovementAnimations.dll
+
+# rebuild after idle/hips update
