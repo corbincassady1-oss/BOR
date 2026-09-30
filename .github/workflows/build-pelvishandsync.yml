@@ -1,7 +1,7 @@
 name: Build PelvisHandSync
 on:
   push:
-    branches: [pelvishandsync-fix]
+    branches: [pelvishandsync-immersive]
   workflow_dispatch:
 jobs:
   build:
