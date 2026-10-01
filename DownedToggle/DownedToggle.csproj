@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+<PropertyGroup>
+<TargetFramework>net6.0</TargetFramework>
+<AssemblyName>Downed</AssemblyName>
+<RootNamespace>downed</RootNamespace>
+<GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+<LangVersion>latest</LangVersion>
+<Nullable>disable</Nullable>
+<EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+</PropertyGroup>
+<ItemGroup><Compile Include="Downed.cs" /></ItemGroup>
+<ItemGroup>
+<PackageReference Include="LavaGang.MelonLoader" Version="0.7.2" />
+<PackageReference Include="UnityEngine.Modules" Version="2021.3.16" />
+<Reference Include="BoneLib"><HintPath>StubBoneLib/bin/Release/net6.0/BoneLib.dll</HintPath><Private>false</Private></Reference>
+<Reference Include="JLib"><HintPath>lib/JLib.dll</HintPath><Private>false</Private></Reference>
+<Reference Include="LabFusion"><HintPath>StubFusion/bin/Release/net6.0/LabFusion.dll</HintPath><Private>false</Private></Reference>
+<Reference Include="Il2CppSLZ.Marrow"><HintPath>StubMarrow/bin/Release/net6.0/Il2CppSLZ.Marrow.dll</HintPath><Private>false</Private></Reference>
+</ItemGroup>
+</Project>
