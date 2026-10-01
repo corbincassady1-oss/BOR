@@ -31,7 +31,7 @@ jobs:
         run: |
           test -s DownedToggle/bin/Release/net6.0/Downed.dll
           file DownedToggle/bin/Release/net6.0/Downed.dll
-          strings DownedToggle/bin/Release/net6.0/Downed.dll | grep -F "Ragdoll On Down"
+          strings -el DownedToggle/bin/Release/net6.0/Downed.dll | grep -F "Ragdoll On Down"
       - uses: actions/upload-artifact@v4
         with:
           name: Downed
