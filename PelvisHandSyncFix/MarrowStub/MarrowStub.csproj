@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <AssemblyName>Il2CppSLZ.Marrow</AssemblyName>
+    <RootNamespace>Il2CppSLZ.Marrow</RootNamespace>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+  </PropertyGroup>
+  <ItemGroup><PackageReference Include="UnityEngine.Modules" Version="2021.3.16" /></ItemGroup>
+</Project>
