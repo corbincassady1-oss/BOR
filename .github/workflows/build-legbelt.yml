@@ -2,6 +2,8 @@ name: Build LegBeltMovementAnimations
 on:
   push:
     branches: [legbelt-movement-animations]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 jobs:
   build:
@@ -28,5 +30,3 @@ jobs:
         with:
           name: LegBeltMovementAnimations
           path: LegBeltMovementAnimations/bin/Release/net6.0/LegBeltMovementAnimations.dll
-
-# rebuild after idle/hips update
