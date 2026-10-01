@@ -1,0 +1,37 @@
+name: Build Downed Ragdoll Toggle
+on:
+  push:
+    branches: [downed-ragdoll-toggle]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Download JLib 1.0.0
+        run: |
+          mkdir -p DownedToggle/lib
+          curl -L --fail --retry 3 -o /tmp/jlib.zip https://thunderstore.io/package/download/Jorink/JLib/1.0.0/
+          unzip -q /tmp/jlib.zip -d /tmp/jlib
+          find /tmp/jlib -type f -name JLib.dll -exec cp {} DownedToggle/lib/JLib.dll \;
+          test -s DownedToggle/lib/JLib.dll
+      - name: Build compile-time stubs
+        run: |
+          dotnet build DownedToggle/StubMarrow/StubMarrow.csproj -c Release --nologo
+          dotnet build DownedToggle/StubBoneLib/StubBoneLib.csproj -c Release --nologo
+          dotnet build DownedToggle/StubFusion/StubFusion.csproj -c Release --nologo
+      - name: Build Downed
+        run: dotnet build DownedToggle/DownedToggle.csproj -c Release --nologo
+      - name: Verify
+        run: |
+          test -s DownedToggle/bin/Release/net6.0/Downed.dll
+          file DownedToggle/bin/Release/net6.0/Downed.dll
+          strings DownedToggle/bin/Release/net6.0/Downed.dll | grep -F "Ragdoll On Down"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Downed
+          path: DownedToggle/bin/Release/net6.0/Downed.dll
+          if-no-files-found: error
