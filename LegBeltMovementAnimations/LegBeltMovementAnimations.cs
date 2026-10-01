@@ -3,7 +3,6 @@ using MelonLoader;
 using UnityEngine;
 using BoneLib;
 using BoneLib.BoneMenu;
-using Il2CppSLZ.Marrow;
 
 [assembly: MelonInfo(typeof(LegBeltMovementAnimations.Main), "LegBeltMovementAnimations", "1.1.0", "OpenAI")]
 [assembly: MelonGame("Stress Level Zero", "BONELAB")]
