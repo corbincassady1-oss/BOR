@@ -13,10 +13,10 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
-      - name: Download JLib 1.0.0
+      - name: Download JLib 1.1.0
         run: |
           mkdir -p DownedToggle/lib
-          curl -L --fail --retry 3 -o /tmp/jlib.zip https://thunderstore.io/package/download/Jorink/JLib/1.0.0/
+          curl -L --fail --retry 3 -o /tmp/jlib.zip https://thunderstore.io/package/download/Jorink/JLib/1.1.0/
           unzip -q /tmp/jlib.zip -d /tmp/jlib
           find /tmp/jlib -type f -name JLib.dll -exec cp {} DownedToggle/lib/JLib.dll \;
           test -s DownedToggle/lib/JLib.dll
