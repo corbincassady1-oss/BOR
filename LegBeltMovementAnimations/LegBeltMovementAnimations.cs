@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using MelonLoader;
 using UnityEngine;
 using BoneLib;
@@ -173,9 +174,12 @@ namespace LegBeltMovementAnimations
         {
             if (rigRoot == null)
             {
-                if (Player.RigManager != null)
-                    rigRoot = Player.RigManager.transform;
-                else
+                var manager = GetPlayerRigManager();
+                if (manager == null)
+                    return;
+
+                rigRoot = GetTransform(manager, "transform");
+                if (rigRoot == null)
                     return;
 
                 lastRootPos = rigRoot.position;
@@ -298,14 +302,15 @@ namespace LegBeltMovementAnimations
         {
             try
             {
-                var manager = Player.RigManager;
-                if (manager == null)
+                var manager = GetPlayerRigManager();
+                var managerComponent = manager as Component;
+                if (managerComponent == null)
                     return;
 
-                rigRoot = manager.transform;
+                rigRoot = managerComponent.transform;
 
                 Animator foundAnimator = null;
-                var animators = manager.GetComponentsInChildren<Animator>(true);
+                var animators = managerComponent.GetComponentsInChildren<Animator>(true);
                 for (int i = 0; i < animators.Length; i++)
                 {
                     var a = animators[i];
@@ -336,7 +341,7 @@ namespace LegBeltMovementAnimations
                 }
                 else
                 {
-                    Transform source = manager.transform.Find("PhysicsRig") ?? manager.transform;
+                    Transform source = managerComponent.transform.Find("PhysicsRig") ?? managerComponent.transform;
                     hips = FindNamed(source, new[] { "Pelvis", "pelvis", "Hips", "hips", "Hip", "hip" });
                     leftUpper = FindNamed(source, new[] { "LeftUpperLeg", "LeftThigh", "leftUpperLeg", "L_Thigh" });
                     rightUpper = FindNamed(source, new[] { "RightUpperLeg", "RightThigh", "rightUpperLeg", "R_Thigh" });
@@ -386,19 +391,83 @@ namespace LegBeltMovementAnimations
             return null;
         }
 
+        private static object GetPlayerRigManager()
+        {
+            try
+            {
+                var type = Type.GetType("BoneLib.Player, BoneLib");
+                if (type == null)
+                    return null;
+
+                var property = type.GetProperty("RigManager", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                if (property != null)
+                    return property.GetValue(null, null);
+
+                var field = type.GetField("RigManager", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                return field != null ? field.GetValue(null) : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static object GetPlayerPhysicsRig()
+        {
+            try
+            {
+                var manager = GetPlayerRigManager();
+                return GetMember(manager, "physicsRig") ?? GetMember(manager, "PhysicsRig");
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static object GetMember(object obj, string name)
+        {
+            if (obj == null)
+                return null;
+
+            try
+            {
+                var type = obj.GetType();
+                var property = type.GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (property != null)
+                    return property.GetValue(obj, null);
+
+                var field = type.GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                return field != null ? field.GetValue(obj) : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static Transform GetTransform(object obj, string member)
+        {
+            return GetMember(obj, member) as Transform;
+        }
+
         private static bool IsGrounded()
         {
             try
             {
-                var physics = Player.PhysicsRig;
+                var physics = GetPlayerPhysicsRig();
                 if (physics == null)
                     return true;
 
-                var feet = physics.feet;
+                var feet = GetMember(physics, "feet");
                 if (feet == null)
                     return true;
 
-                var grounder = feet.GetComponent("PhysGrounder");
+                var feetComponent = feet as Component;
+                if (feetComponent == null)
+                    return true;
+
+                var grounder = feetComponent.GetComponent("PhysGrounder");
                 if (grounder == null)
                     return true;
 
