@@ -1,0 +1,44 @@
+name: Build Flow Motion
+on:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Create project
+        run: |
+          cat > FlowMotion/FlowMotion.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>netstandard2.1</TargetFramework>
+              <LangVersion>latest</LangVersion>
+              <AssemblyName>FlowMotion</AssemblyName>
+              <RootNamespace>FlowMotion</RootNamespace>
+            </PropertyGroup>
+            <ItemGroup>
+              <Reference Include="UnityEngine.CoreModule"><HintPath>refs/UnityEngine.CoreModule.dll</HintPath></Reference>
+              <Reference Include="MelonLoader"><HintPath>refs/MelonLoader.dll</HintPath></Reference>
+              <Reference Include="BoneLib"><HintPath>refs/BoneLib.dll</HintPath></Reference>
+            </ItemGroup>
+          </Project>
+          EOF
+      - name: Fetch references
+        run: |
+          mkdir -p FlowMotion/refs
+          curl -L -o FlowMotion/refs/BoneLib.dll https://github.com/yowchap/BoneLib/releases/download/v3.2.2/BoneLib.dll || true
+          curl -L -o FlowMotion/refs/MelonLoader.dll https://github.com/LavaGang/MelonLoader/releases/download/v0.6.5/MelonLoader.dll || true
+          curl -L -o FlowMotion/refs/UnityEngine.CoreModule.dll https://unity.bepinex.dev/libraries/UnityEngine.CoreModule.dll || true
+      - name: Build
+        run: dotnet build FlowMotion/FlowMotion.csproj -c Release
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp FlowMotion/bin/Release/netstandard2.1/FlowMotion.dll dist/FlowMotion.dll
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FlowMotion
+          path: dist/FlowMotion.dll
