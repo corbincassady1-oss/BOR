@@ -48,7 +48,7 @@ jobs:
         run: |
           cat > FlowMotion/FlowMotion.csproj <<'EOF'
           <Project Sdk="Microsoft.NET.Sdk">
-          <PropertyGroup><TargetFramework>net6.0</TargetFramework><AssemblyName>FlowMotion</AssemblyName><RootNamespace>FlowMotion</RootNamespace><GenerateAssemblyInfo>false</GenerateAssemblyInfo><Nullable>disable</Nullable></PropertyGroup>
+          <PropertyGroup><TargetFramework>net6.0</TargetFramework><AssemblyName>FlowMotion</AssemblyName><RootNamespace>FlowMotion</RootNamespace><GenerateAssemblyInfo>false</GenerateAssemblyInfo><Nullable>disable</Nullable><EnableDefaultCompileItems>false</EnableDefaultCompileItems></PropertyGroup>
           <ItemGroup><Compile Include="FlowMotion.cs" /></ItemGroup>
           <ItemGroup>
           <PackageReference Include="LavaGang.MelonLoader" Version="0.7.2" />
