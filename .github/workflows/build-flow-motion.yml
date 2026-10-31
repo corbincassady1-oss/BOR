@@ -1,0 +1,75 @@
+name: Build Flow Motion
+on:
+  push:
+    branches: [flow-motion]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Build compile-time stubs
+        run: |
+          mkdir -p FlowMotion/StubMarrow FlowMotion/StubBoneLib FlowMotion/lib
+          cat > FlowMotion/StubMarrow/StubMarrow.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+          <PropertyGroup><TargetFramework>net6.0</TargetFramework><AssemblyName>Il2CppSLZ.Marrow</AssemblyName><GenerateAssemblyInfo>false</GenerateAssemblyInfo></PropertyGroup>
+          <ItemGroup><PackageReference Include="UnityEngine.Modules" Version="2021.3.16" /></ItemGroup>
+          </Project>
+          EOF
+          cat > FlowMotion/StubMarrow/Marrow.cs <<'EOF'
+          using UnityEngine;
+          namespace Il2CppSLZ.Marrow { public class PhysicsRig : MonoBehaviour {} public class RigManager : MonoBehaviour { public PhysicsRig physicsRig; } }
+          EOF
+          cat > FlowMotion/StubBoneLib/StubBoneLib.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+          <PropertyGroup><TargetFramework>net6.0</TargetFramework><AssemblyName>BoneLib</AssemblyName><GenerateAssemblyInfo>false</GenerateAssemblyInfo></PropertyGroup>
+          <ItemGroup><ProjectReference Include="../StubMarrow/StubMarrow.csproj" /><PackageReference Include="UnityEngine.Modules" Version="2021.3.16" /><PackageReference Include="LavaGang.MelonLoader" Version="0.7.2" /></ItemGroup>
+          </Project>
+          EOF
+          cat > FlowMotion/StubBoneLib/BoneLib.cs <<'EOF'
+          using Il2CppSLZ.Marrow;
+          namespace BoneLib { public static class Player { public static RigManager RigManager; public static PhysicsRig PhysicsRig; } }
+          EOF
+          dotnet build FlowMotion/StubMarrow/StubMarrow.csproj -c Release --nologo
+          dotnet build FlowMotion/StubBoneLib/StubBoneLib.csproj -c Release --nologo
+      - name: Download JLib
+        run: |
+          curl -L --fail --retry 3 -o /tmp/jlib.zip https://thunderstore.io/package/download/Jorink/JLib/1.1.0/
+          unzip -q /tmp/jlib.zip -d /tmp/jlib
+          find /tmp/jlib -type f -name JLib.dll -exec cp {} FlowMotion/lib/JLib.dll \;
+          test -s FlowMotion/lib/JLib.dll
+      - name: Create project
+        run: |
+          cat > FlowMotion/FlowMotion.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+          <PropertyGroup><TargetFramework>net6.0</TargetFramework><AssemblyName>FlowMotion</AssemblyName><RootNamespace>FlowMotion</RootNamespace><GenerateAssemblyInfo>false</GenerateAssemblyInfo><Nullable>disable</Nullable><EnableDefaultCompileItems>false</EnableDefaultCompileItems></PropertyGroup>
+          <ItemGroup><Compile Include="FlowMotion.cs" /></ItemGroup>
+          <ItemGroup>
+          <PackageReference Include="LavaGang.MelonLoader" Version="0.7.2" />
+          <PackageReference Include="UnityEngine.Modules" Version="2021.3.16" />
+          <Reference Include="BoneLib"><HintPath>StubBoneLib/bin/Release/net6.0/BoneLib.dll</HintPath><Private>false</Private></Reference>
+          <Reference Include="JLib"><HintPath>lib/JLib.dll</HintPath><Private>false</Private></Reference>
+          <Reference Include="Il2CppSLZ.Marrow"><HintPath>StubMarrow/bin/Release/net6.0/Il2CppSLZ.Marrow.dll</HintPath><Private>false</Private></Reference>
+          </ItemGroup>
+          </Project>
+          EOF
+      - name: Build Flow Motion
+        run: dotnet build FlowMotion/FlowMotion.csproj -c Release --nologo
+      - name: Verify
+        run: |
+          test -s FlowMotion/bin/Release/net6.0/FlowMotion.dll
+          file FlowMotion/bin/Release/net6.0/FlowMotion.dll
+          strings -el FlowMotion/bin/Release/net6.0/FlowMotion.dll | grep -F "Flow Motion"
+          strings -el FlowMotion/bin/Release/net6.0/FlowMotion.dll | grep -F "Stretchiness"
+          strings -el FlowMotion/bin/Release/net6.0/FlowMotion.dll | grep -F "Flexibility"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FlowMotion
+          path: FlowMotion/bin/Release/net6.0/FlowMotion.dll
+          if-no-files-found: error
