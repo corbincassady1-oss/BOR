@@ -2,6 +2,8 @@ name: Build Flow Motion
 on:
   push:
     branches: [flow-motion]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 jobs:
   build:
