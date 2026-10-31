@@ -44,15 +44,15 @@ namespace FlowMotion
 
             var menu = JLib.Register("Flow Motion", Color.cyan);
             menu.Bool("Enabled", true, Color.green);
-            menu.Float("Stretchiness", 0f, 3f, stretchiness.Value);
-            menu.Float("Flexibility", 0f, 3f, flexibility.Value);
-            menu.Float("Stretch Speed", 0.5f, 10f, stretchSpeed.Value);
-            menu.Float("Flex Speed", 0.5f, 10f, flexSpeed.Value);
-            menu.Float("Arm Stretch", 0f, 3f, armStretch.Value);
-            menu.Float("Leg Stretch", 0f, 3f, legStretch.Value);
-            menu.Float("Spine Flex", 0f, 3f, spineFlex.Value);
-            menu.Float("Hip Flex", 0f, 3f, hipFlex.Value);
-            menu.Float("Maximum Bend", 0f, 3f, maxBend.Value);
+            menu.Float("Stretchiness", 0f, 3f, stretchiness.Value, 0.1f, Color.white, v => stretchiness.Value = v);
+            menu.Float("Flexibility", 0f, 3f, flexibility.Value, 0.1f, Color.white, v => flexibility.Value = v);
+            menu.Float("Stretch Speed", 0.5f, 10f, stretchSpeed.Value, 0.1f, Color.white, v => stretchSpeed.Value = v);
+            menu.Float("Flex Speed", 0.5f, 10f, flexSpeed.Value, 0.1f, Color.white, v => flexSpeed.Value = v);
+            menu.Float("Arm Stretch", 0f, 3f, armStretch.Value, 0.1f, Color.white, v => armStretch.Value = v);
+            menu.Float("Leg Stretch", 0f, 3f, legStretch.Value, 0.1f, Color.white, v => legStretch.Value = v);
+            menu.Float("Spine Flex", 0f, 3f, spineFlex.Value, 0.1f, Color.white, v => spineFlex.Value = v);
+            menu.Float("Hip Flex", 0f, 3f, hipFlex.Value, 0.1f, Color.white, v => hipFlex.Value = v);
+            menu.Float("Maximum Bend", 0f, 3f, maxBend.Value, 0.1f, Color.white, v => maxBend.Value = v);
         }
 
         public override void OnUpdate()
