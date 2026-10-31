@@ -1,0 +1,41 @@
+name: Build Flow Motion
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Get MelonLoader reference
+        shell: bash
+        run: |
+          mkdir -p FlowMotionNew/References
+          curl -L --fail --retry 3 -o /tmp/MelonLoader.zip https://github.com/LavaGang/MelonLoader/releases/download/v0.6.6/MelonLoader.x64.zip
+          unzip -q /tmp/MelonLoader.zip -d /tmp/melon
+          ML_DLL="$(find /tmp/melon -type f -name 'MelonLoader.dll' | head -n 1)"
+          test -n "$ML_DLL"
+          cp "$ML_DLL" FlowMotionNew/References/MelonLoader.dll
+      - name: Build
+        run: dotnet build FlowMotionNew/FlowMotionNew.csproj -c Release --nologo
+      - name: Verify
+        shell: bash
+        run: |
+          test -s FlowMotionNew/FlowMotion.dll
+          file FlowMotionNew/FlowMotion.dll
+          sha256sum FlowMotionNew/FlowMotion.dll
+      - name: Upload Flow Motion DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlowMotion
+          path: FlowMotionNew/FlowMotion.dll
+          if-no-files-found: error
