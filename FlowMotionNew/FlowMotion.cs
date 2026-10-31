@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using MelonLoader;
 
-[assembly: MelonInfo(typeof(FlowMotionNew.FlowMotionMod), "Flow Motion", "1.0.0", "BOR")]
+[assembly: MelonInfo(typeof(FlowMotionNew.FlowMotionMod), "Flow Motion", "1.0.1", "BOR")]
 [assembly: MelonGame("Stress Level Zero", "BONELAB")]
 
 namespace FlowMotionNew
@@ -42,12 +42,9 @@ namespace FlowMotionNew
         private MethodInfo quatEuler;
         private MethodInfo quatSlerp;
         private MethodInfo quatMultiply;
-        private MethodInfo vecCtor;
-        private MethodInfo quatCtor;
         private PropertyInfo timeProp;
         private PropertyInfo deltaTimeProp;
 
-        private object rigManager;
         private object rigTransform;
         private string rigSignature;
         private float nextScan;
@@ -78,9 +75,7 @@ namespace FlowMotionNew
         {
             try
             {
-                if (!initialized || !enabled.Value)
-                    return;
-
+                if (!initialized || !enabled.Value) return;
                 float now = GetFloat(timeProp);
                 float dt = Math.Max(0.001f, GetFloat(deltaTimeProp));
 
@@ -90,9 +85,7 @@ namespace FlowMotionNew
                     FindPlayerRig();
                 }
 
-                if (rigTransform == null || bones.Count == 0)
-                    return;
-
+                if (rigTransform == null || bones.Count == 0) return;
                 ApplyMotion(now, dt);
             }
             catch (Exception ex)
@@ -117,8 +110,6 @@ namespace FlowMotionNew
             vecX = unityVector3.GetProperty("x");
             vecY = unityVector3.GetProperty("y");
             vecZ = unityVector3.GetProperty("z");
-            vecCtor = unityVector3.GetMethod(".ctor", BindingFlags.Instance | BindingFlags.Public);
-            quatCtor = unityQuaternion.GetMethod(".ctor", BindingFlags.Instance | BindingFlags.Public);
             quatEuler = unityQuaternion.GetMethod("Euler", BindingFlags.Static | BindingFlags.Public, null, new[] { typeof(float), typeof(float), typeof(float) }, null);
             quatSlerp = unityQuaternion.GetMethod("Slerp", BindingFlags.Static | BindingFlags.Public, null, new[] { unityQuaternion, unityQuaternion, typeof(float) }, null);
             quatMultiply = unityQuaternion.GetMethod("op_Multiply", BindingFlags.Static | BindingFlags.Public, null, new[] { unityQuaternion, unityQuaternion }, null);
@@ -133,13 +124,13 @@ namespace FlowMotionNew
                     break;
                 }
             }
-            initialized = getChildren != null && trLocalScale != null && trLocalRotation != null && quatEuler != null && quatSlerp != null;
+            initialized = getChildren != null && trName != null && trLocalScale != null && trLocalRotation != null && trPosition != null && quatEuler != null && quatSlerp != null;
         }
 
         private void FindPlayerRig()
         {
-            object playerType = FindType("BoneLib.Player");
-            if (playerType is not Type type)
+            Type type = FindType("BoneLib.Player");
+            if (type == null)
             {
                 foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
                 {
@@ -163,9 +154,7 @@ namespace FlowMotionNew
             }
             if (rm == null) return;
 
-            var transformProp = rm.GetType().GetProperty("transform", BindingFlags.Instance | BindingFlags.Public);
-            if (transformProp == null) return;
-            object root = transformProp.GetValue(rm, null);
+            object root = GetTransformFromComponent(rm);
             if (root == null) return;
 
             object[] all = (object[])getChildren.Invoke(root, new object[] { true });
@@ -173,13 +162,18 @@ namespace FlowMotionNew
             if (rigTransform != root || sig != rigSignature)
             {
                 RestoreAndClear();
-                rigManager = rm;
                 rigTransform = root;
                 rigSignature = sig;
                 CacheBones(all);
-                lastY = GetVectorComponent(trPosition.GetValue(root), vecY);
+                lastY = GetVectorComponent(trPosition.GetValue(root, null), vecY);
                 MelonLogger.Msg("Flow Motion found player rig: " + all.Length + " transforms.");
             }
+        }
+
+        private object GetTransformFromComponent(object component)
+        {
+            var p = component.GetType().GetProperty("transform", BindingFlags.Instance | BindingFlags.Public);
+            return p == null ? null : p.GetValue(component, null);
         }
 
         private string BuildSignature(object[] all)
@@ -207,8 +201,8 @@ namespace FlowMotionNew
             {
                 string n = ((string)trName.GetValue(t, null) ?? string.Empty).ToLowerInvariant();
                 if (!IsTarget(n)) continue;
-                if (!baseScales.ContainsKey(t)) baseScales[t] = trLocalScale.GetValue(t, null);
-                if (!baseRotations.ContainsKey(t)) baseRotations[t] = trLocalRotation.GetValue(t, null);
+                baseScales[t] = trLocalScale.GetValue(t, null);
+                baseRotations[t] = trLocalRotation.GetValue(t, null);
                 bones.Add(t);
             }
         }
@@ -279,7 +273,6 @@ namespace FlowMotionNew
             baseRotations.Clear();
             bones.Clear();
             rigTransform = null;
-            rigManager = null;
             rigSignature = null;
         }
 
