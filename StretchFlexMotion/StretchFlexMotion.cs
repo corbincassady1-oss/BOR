@@ -4,7 +4,7 @@ using System.Linq;
 using System.Reflection;
 using MelonLoader;
 
-[assembly: MelonInfo(typeof(StretchFlexMotion.Mod), "Stretch Flex Motion", "1.0.0", "BOR")]
+[assembly: MelonInfo(typeof(StretchFlexMotion.Mod), "Stretch Flex Motion", "1.0.1", "BOR")]
 [assembly: MelonGame("Stress Level Zero", "BONELAB")]
 
 namespace StretchFlexMotion
@@ -28,6 +28,7 @@ namespace StretchFlexMotion
         private float nextScan;
         private float lastY;
         private bool menuMade;
+        private bool loggedRig;
 
         public override void OnInitializeMelon()
         {
@@ -43,7 +44,7 @@ namespace StretchFlexMotion
             hipFlex = cat.CreateEntry("Hip Flexibility", 1.0f);
             maxBend = cat.CreateEntry("Maximum Bend", 30.0f);
             TryMenu();
-            MelonLogger.Msg("[Stretch Flex Motion] Loaded.");
+            MelonLogger.Msg("[Stretch Flex Motion] Loaded 1.0.1.");
         }
 
         public override void OnLateInitializeMelon() => TryMenu();
@@ -55,9 +56,10 @@ namespace StretchFlexMotion
                 Restore();
                 return;
             }
-            if (GetTime() >= nextScan)
+            float now = GetTime();
+            if (now >= nextScan)
             {
-                nextScan = GetTime() + 0.5f;
+                nextScan = now + 0.5f;
                 FindRig();
             }
             if (rigRoot == null || bones == null) return;
@@ -70,22 +72,38 @@ namespace StretchFlexMotion
             {
                 var player = FindType("BoneLib.Player");
                 var rm = GetStatic(player, "RigManager");
+                if (rm == null) rm = GetStatic(player, "rigManager");
+                if (rm == null) return;
+
                 var root = GetMember(rm, "transform");
                 if (root == null) return;
+
                 if (!ReferenceEquals(root, rigRoot))
                 {
                     Restore();
                     baseScale.Clear();
                     baseRotation.Clear();
                     rigRoot = root;
+                    loggedRig = false;
                 }
+
                 var trType = FindType("UnityEngine.Transform");
+                if (trType == null) return;
                 var get = trType.GetMethod("GetComponentsInChildren", new[] { typeof(Type), typeof(bool) });
                 if (get == null) return;
                 bones = get.Invoke(rigRoot, new object[] { trType, true }) as System.Collections.IEnumerable;
                 lastY = GetFloat(GetMember(root, "position"), "y");
+
+                if (!loggedRig && bones != null)
+                {
+                    loggedRig = true;
+                    MelonLogger.Msg("[Stretch Flex Motion] Player rig acquired.");
+                }
             }
-            catch (Exception e) { MelonLogger.Warning("[Stretch Flex Motion] Rig scan: " + e.Message); }
+            catch (Exception e)
+            {
+                MelonLogger.Warning("[Stretch Flex Motion] Rig scan: " + e.Message);
+            }
         }
 
         private void Apply()
@@ -98,12 +116,13 @@ namespace StretchFlexMotion
                 float y = GetFloat(pos, "y");
                 float velocity = Math.Abs((y - lastY) / dt);
                 lastY = y;
+
                 float motion = Clamp01((velocity * 0.45f) + 0.25f);
                 float stretch = Clamp(stretchiness.Value, 0f, 3f) * (0.35f + motion * 0.65f);
                 float flex = Clamp(flexibility.Value, 0f, 3f);
                 float bendLimit = Clamp(maxBend.Value, 0f, 90f);
                 float smooth = 1f - (float)Math.Exp(-Math.Max(stretchSpeed.Value, 0.1f) * dt);
-                float rotSmooth = Clamp01((1f + flexSpeed.Value) * dt);
+                float rotSmooth = Clamp01((1f + Math.Max(flexSpeed.Value, 0.1f)) * dt);
 
                 foreach (object tr in bones)
                 {
@@ -116,17 +135,26 @@ namespace StretchFlexMotion
                     if (!baseRotation.ContainsKey(tr)) baseRotation[tr] = GetMember(tr, "localRotation");
 
                     object scale = baseScale[tr];
-                    float factor = 1f + stretch * group * 0.30f;
-                    object targetScale = ScaleVector(scale, factor, name);
-                    SetMember(tr, "localScale", LerpVector(GetMember(tr, "localScale"), targetScale, smooth));
+                    if (scale != null)
+                    {
+                        float factor = 1f + stretch * group * 0.30f;
+                        object targetScale = ScaleVector(scale, factor, name);
+                        object currentScale = GetMember(tr, "localScale");
+                        if (currentScale != null && targetScale != null)
+                            SetMember(tr, "localScale", LerpVector(currentScale, targetScale, smooth));
+                    }
 
+                    object originalRot = baseRotation[tr];
+                    if (originalRot == null) continue;
                     float phase = (GetId(tr) % 1000) * 0.017f;
                     float wave = (float)Math.Sin(time * Math.Max(flexSpeed.Value, 0.1f) + phase);
                     float side = (float)Math.Cos(time * Math.Max(flexSpeed.Value, 0.1f) * 0.7f + phase);
                     float bend = wave * bendLimit * 0.35f * flex * group;
                     float twist = side * bendLimit * 0.20f * flex * group;
-                    object targetRot = MultiplyRotation(baseRotation[tr], Euler(bend, twist, bend * 0.25f));
-                    SetMember(tr, "localRotation", Slerp(GetMember(tr, "localRotation"), targetRot, rotSmooth));
+                    object targetRot = MultiplyRotation(originalRot, Euler(bend, twist, bend * 0.25f));
+                    object currentRot = GetMember(tr, "localRotation");
+                    if (currentRot != null && targetRot != null)
+                        SetMember(tr, "localRotation", Slerp(currentRot, targetRot, rotSmooth));
                 }
             }
             catch { }
@@ -145,8 +173,8 @@ namespace StretchFlexMotion
         {
             try
             {
-                foreach (var p in baseScale) SetMember(p.Key, "localScale", p.Value);
-                foreach (var p in baseRotation) SetMember(p.Key, "localRotation", p.Value);
+                foreach (var p in baseScale) if (p.Value != null) SetMember(p.Key, "localScale", p.Value);
+                foreach (var p in baseRotation) if (p.Value != null) SetMember(p.Key, "localRotation", p.Value);
             }
             catch { }
         }
@@ -161,6 +189,7 @@ namespace StretchFlexMotion
                 object root = pageType.GetProperty("Root", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
                 if (root == null) return;
                 var colorType = FindType("UnityEngine.Color");
+                if (colorType == null) return;
                 object cyan = Activator.CreateInstance(colorType, new object[] { 0.1f, 0.9f, 1f, 1f });
                 MethodInfo createPage = pageType.GetMethod("CreatePage", new[] { typeof(string), colorType, typeof(int), typeof(bool) });
                 if (createPage == null) return;
@@ -202,7 +231,13 @@ namespace StretchFlexMotion
             foreach (var a in AppDomain.CurrentDomain.GetAssemblies()) { var t = a.GetType(name, false); if (t != null) return t; }
             return Type.GetType(name + ", UnityEngine.CoreModule") ?? Type.GetType(name + ", BoneLib") ?? Type.GetType(name);
         }
-        private static object GetStatic(Type t, string name) => t?.GetProperty(name, BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
+        private static object GetStatic(Type t, string name)
+        {
+            if (t == null) return null;
+            var p = t.GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            if (p != null) return p.GetValue(null);
+            return t.GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)?.GetValue(null);
+        }
         private static object GetMember(object o, string name) { if (o == null) return null; var p = o.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static); if (p != null) return p.GetValue(o); var f = o.GetType().GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static); return f?.GetValue(o); }
         private static void SetMember(object o, string name, object v) { if (o == null) return; var p = o.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance); if (p != null && p.CanWrite) { p.SetValue(o, v); return; } o.GetType().GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)?.SetValue(o, v); }
         private static string GetName(object o) => Convert.ToString(GetMember(o, "name")) ?? "";
