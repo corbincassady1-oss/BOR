@@ -43,16 +43,16 @@ namespace FlowMotion
             maxBend = cat.CreateEntry("Maximum Bend", 1.0f);
 
             var menu = JLib.Register("Flow Motion", Color.cyan);
-            menu.Bool("Enabled", true, Color.green, v => enabled.Value = v);
-            menu.Float("Stretchiness", 0f, 3f, stretchiness.Value, v => stretchiness.Value = v);
-            menu.Float("Flexibility", 0f, 3f, flexibility.Value, v => flexibility.Value = v);
-            menu.Float("Stretch Speed", 0.5f, 10f, stretchSpeed.Value, v => stretchSpeed.Value = v);
-            menu.Float("Flex Speed", 0.5f, 10f, flexSpeed.Value, v => flexSpeed.Value = v);
-            menu.Float("Arm Stretch", 0f, 3f, armStretch.Value, v => armStretch.Value = v);
-            menu.Float("Leg Stretch", 0f, 3f, legStretch.Value, v => legStretch.Value = v);
-            menu.Float("Spine Flex", 0f, 3f, spineFlex.Value, v => spineFlex.Value = v);
-            menu.Float("Hip Flex", 0f, 3f, hipFlex.Value, v => hipFlex.Value = v);
-            menu.Float("Maximum Bend", 0f, 3f, maxBend.Value, v => maxBend.Value = v);
+            menu.Bool("Enabled", true, Color.green);
+            menu.Float("Stretchiness", 0f, 3f, stretchiness.Value);
+            menu.Float("Flexibility", 0f, 3f, flexibility.Value);
+            menu.Float("Stretch Speed", 0.5f, 10f, stretchSpeed.Value);
+            menu.Float("Flex Speed", 0.5f, 10f, flexSpeed.Value);
+            menu.Float("Arm Stretch", 0f, 3f, armStretch.Value);
+            menu.Float("Leg Stretch", 0f, 3f, legStretch.Value);
+            menu.Float("Spine Flex", 0f, 3f, spineFlex.Value);
+            menu.Float("Hip Flex", 0f, 3f, hipFlex.Value);
+            menu.Float("Maximum Bend", 0f, 3f, maxBend.Value);
         }
 
         public override void OnUpdate()
@@ -91,7 +91,7 @@ namespace FlowMotion
             float motion = Mathf.Clamp01((verticalVelocity + Mathf.Abs(Mathf.Sin(t * 0.8f))) / 3f);
             float stretch = stretchiness.Value * motion;
             float flex = flexibility.Value * maxBend.Value;
-            float wave = Mathf.Sin(t * Mathf.Max(0.1f, flexSpeed.Value));
+            float waveSpeed = Mathf.Max(0.1f, flexSpeed.Value);
             float smooth = 1f - Mathf.Exp(-Mathf.Max(0.1f, stretchSpeed.Value) * dt);
 
             foreach (var tr in transforms)
@@ -100,8 +100,8 @@ namespace FlowMotion
                 string n = tr.name.ToLowerInvariant();
                 if (!baseScales.ContainsKey(tr)) baseScales[tr] = tr.localScale;
                 if (!baseRotations.ContainsKey(tr)) baseRotations[tr] = tr.localRotation;
-                float amount = 0f;
-                float bendAmount = 0f;
+                float amount;
+                float bendAmount;
                 if (n.Contains("upperarm") || n.Contains("forearm") || n.Contains("hand")) { amount = armStretch.Value; bendAmount = armStretch.Value; }
                 else if (n.Contains("thigh") || n.Contains("calf") || n.Contains("foot")) { amount = legStretch.Value; bendAmount = legStretch.Value; }
                 else if (n.Contains("spine") || n.Contains("chest") || n.Contains("abdomen")) { amount = spineFlex.Value; bendAmount = spineFlex.Value; }
@@ -110,11 +110,10 @@ namespace FlowMotion
 
                 Vector3 s = baseScales[tr];
                 float scale = 1f + stretch * 0.22f * amount;
-                Vector3 targetScale = new Vector3(s.x, s.y * scale, s.z);
-                tr.localScale = Vector3.Lerp(tr.localScale, targetScale, smooth);
+                tr.localScale = Vector3.Lerp(tr.localScale, new Vector3(s.x, s.y * scale, s.z), smooth);
 
-                float bend = Mathf.Sin(t * Mathf.Max(0.1f, flexSpeed.Value) + tr.GetInstanceID() * 0.013f) * flex * bendAmount * 8f;
-                float sway = Mathf.Cos(t * Mathf.Max(0.1f, flexSpeed.Value) * 0.7f) * flex * bendAmount * 5f;
+                float bend = Mathf.Sin(t * waveSpeed + tr.GetInstanceID() * 0.013f) * flex * bendAmount * 8f;
+                float sway = Mathf.Cos(t * waveSpeed * 0.7f) * flex * bendAmount * 5f;
                 Quaternion targetRot = baseRotations[tr] * Quaternion.Euler(bend, sway, bend * 0.35f);
                 tr.localRotation = Quaternion.Slerp(tr.localRotation, targetRot, Mathf.Clamp01((1f + flexSpeed.Value) * dt));
             }
