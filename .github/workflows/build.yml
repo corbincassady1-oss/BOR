@@ -23,12 +23,30 @@ jobs:
       - name: Get official MelonLoader reference
         shell: bash
         run: |
-          mkdir -p BulletOverdrive/References
-          curl -L --fail --retry 3 -o /tmp/MelonLoader.zip             https://github.com/LavaGang/MelonLoader/releases/download/v0.6.6/MelonLoader.x64.zip
+          mkdir -p BulletOverdrive/References FlowMotionNew/References
+          curl -L --fail --retry 3 -o /tmp/MelonLoader.zip https://github.com/LavaGang/MelonLoader/releases/download/v0.6.6/MelonLoader.x64.zip
           unzip -q /tmp/MelonLoader.zip -d /tmp/melon
           ML_DLL="$(find /tmp/melon -type f -name 'MelonLoader.dll' | head -n 1)"
           test -n "$ML_DLL"
           cp "$ML_DLL" BulletOverdrive/References/MelonLoader.dll
+          cp "$ML_DLL" FlowMotionNew/References/MelonLoader.dll
+
+      - name: Build Flow Motion
+        run: dotnet build FlowMotionNew/FlowMotionNew.csproj -c Release --nologo
+
+      - name: Verify Flow Motion
+        shell: bash
+        run: |
+          test -s FlowMotionNew/FlowMotion.dll
+          file FlowMotionNew/FlowMotion.dll
+          sha256sum FlowMotionNew/FlowMotion.dll
+
+      - name: Upload Flow Motion DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlowMotion
+          path: FlowMotionNew/FlowMotion.dll
+          if-no-files-found: error
 
       - name: Build
         run: dotnet build BulletOverdrive/BulletOverdrive.csproj -c Release --nologo
@@ -54,7 +72,7 @@ jobs:
           path: FusionPlayerTeleporter/FusionPlayerTeleporter.dll
           if-no-files-found: error
 
-      - name: Publish Fusion Player Teleporter DLL
+      - name: Publish Fusion Player Teleporter
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
