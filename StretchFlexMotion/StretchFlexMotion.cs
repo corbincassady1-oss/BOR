@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using MelonLoader;
 
@@ -23,7 +24,7 @@ namespace StretchFlexMotion
         private readonly Dictionary<object, object> baseScale = new Dictionary<object, object>();
         private readonly Dictionary<object, object> baseRotation = new Dictionary<object, object>();
         private object rigRoot;
-        private Array bones;
+        private System.Collections.IEnumerable bones;
         private float nextScan;
         private float lastY;
         private bool menuMade;
@@ -80,7 +81,8 @@ namespace StretchFlexMotion
                 }
                 var trType = FindType("UnityEngine.Transform");
                 var get = trType.GetMethod("GetComponentsInChildren", new[] { typeof(Type), typeof(bool) });
-                bones = get.Invoke(rigRoot, new object[] { trType, true }) as Array;
+                if (get == null) return;
+                bones = get.Invoke(rigRoot, new object[] { trType, true }) as System.Collections.IEnumerable;
                 lastY = GetFloat(GetMember(root, "position"), "y");
             }
             catch (Exception e) { MelonLogger.Warning("[Stretch Flex Motion] Rig scan: " + e.Message); }
@@ -97,7 +99,7 @@ namespace StretchFlexMotion
                 float velocity = Math.Abs((y - lastY) / dt);
                 lastY = y;
                 float motion = Clamp01((velocity * 0.45f) + 0.25f);
-                float stretch = Clamp(stretchiness.Value, 0f, 3f) * motion;
+                float stretch = Clamp(stretchiness.Value, 0f, 3f) * (0.35f + motion * 0.65f);
                 float flex = Clamp(flexibility.Value, 0f, 3f);
                 float bendLimit = Clamp(maxBend.Value, 0f, 90f);
                 float smooth = 1f - (float)Math.Exp(-Math.Max(stretchSpeed.Value, 0.1f) * dt);
@@ -155,6 +157,7 @@ namespace StretchFlexMotion
             try
             {
                 var pageType = FindType("BoneLib.BoneMenu.Page");
+                if (pageType == null) return;
                 object root = pageType.GetProperty("Root", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
                 if (root == null) return;
                 var colorType = FindType("UnityEngine.Color");
