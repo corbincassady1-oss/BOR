@@ -4,7 +4,7 @@ using System.Linq;
 using System.Reflection;
 using MelonLoader;
 
-[assembly: MelonInfo(typeof(StretchFlexMotion.Mod), "Stretch Flex Motion", "1.0.1", "BOR")]
+[assembly: MelonInfo(typeof(StretchFlexMotion.Mod), "Stretch Flex Motion", "1.0.2", "BOR")]
 [assembly: MelonGame("Stress Level Zero", "BONELAB")]
 
 namespace StretchFlexMotion
@@ -44,10 +44,12 @@ namespace StretchFlexMotion
             hipFlex = cat.CreateEntry("Hip Flexibility", 1.0f);
             maxBend = cat.CreateEntry("Maximum Bend", 30.0f);
             TryMenu();
-            MelonLogger.Msg("[Stretch Flex Motion] Loaded 1.0.1.");
+            MelonLogger.Msg("[Stretch Flex Motion] Loaded 1.0.2.");
         }
 
         public override void OnLateInitializeMelon() => TryMenu();
+
+        public override void OnDeinitializeMelon() => Restore();
 
         public override void OnUpdate()
         {
@@ -157,7 +159,10 @@ namespace StretchFlexMotion
                         SetMember(tr, "localRotation", Slerp(currentRot, targetRot, rotSmooth));
                 }
             }
-            catch { }
+            catch (Exception e)
+            {
+                MelonLogger.Warning("[Stretch Flex Motion] Motion update: " + e.Message);
+            }
         }
 
         private float GroupAmount(string n)
