@@ -1,0 +1,38 @@
+name: Build Stretch Flex Motion
+on:
+  push:
+    branches: [stretch-flex-motion]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Get MelonLoader reference
+        shell: bash
+        run: |
+          mkdir -p StretchFlexMotion/References
+          curl -L --fail --retry 3 -o /tmp/MelonLoader.zip https://github.com/LavaGang/MelonLoader/releases/download/v0.6.6/MelonLoader.x64.zip
+          unzip -q /tmp/MelonLoader.zip -d /tmp/melon
+          ML_DLL="$(find /tmp/melon -type f -name 'MelonLoader.dll' | head -n 1)"
+          test -n "$ML_DLL"
+          cp "$ML_DLL" StretchFlexMotion/References/MelonLoader.dll
+      - name: Build
+        run: dotnet build StretchFlexMotion/StretchFlexMotion.csproj -c Release --nologo
+      - name: Verify
+        run: |
+          test -s StretchFlexMotion/StretchFlexMotion.dll
+          file StretchFlexMotion/StretchFlexMotion.dll
+          strings -el StretchFlexMotion/StretchFlexMotion.dll | grep -F "Stretch Flex Motion"
+          strings -el StretchFlexMotion/StretchFlexMotion.dll | grep -F "Stretchiness"
+          strings -el StretchFlexMotion/StretchFlexMotion.dll | grep -F "Flexibility"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StretchFlexMotion
+          path: StretchFlexMotion/StretchFlexMotion.dll
+          if-no-files-found: error
