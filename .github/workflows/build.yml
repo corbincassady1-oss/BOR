@@ -23,13 +23,14 @@ jobs:
       - name: Get official MelonLoader reference
         shell: bash
         run: |
-          mkdir -p BulletOverdrive/References FlowMotionNew/References
+          mkdir -p BulletOverdrive/References FlowMotionNew/References StretchFlexMotion/References
           curl -L --fail --retry 3 -o /tmp/MelonLoader.zip https://github.com/LavaGang/MelonLoader/releases/download/v0.6.6/MelonLoader.x64.zip
           unzip -q /tmp/MelonLoader.zip -d /tmp/melon
           ML_DLL="$(find /tmp/melon -type f -name 'MelonLoader.dll' | head -n 1)"
           test -n "$ML_DLL"
           cp "$ML_DLL" BulletOverdrive/References/MelonLoader.dll
           cp "$ML_DLL" FlowMotionNew/References/MelonLoader.dll
+          cp "$ML_DLL" StretchFlexMotion/References/MelonLoader.dll
 
       - name: Build Flow Motion
         run: dotnet build FlowMotionNew/FlowMotionNew.csproj -c Release --nologo
@@ -46,6 +47,26 @@ jobs:
         with:
           name: FlowMotion
           path: FlowMotionNew/FlowMotion.dll
+          if-no-files-found: error
+
+      - name: Build Stretch Flex Motion
+        run: dotnet build StretchFlexMotion/StretchFlexMotion.csproj -c Release --nologo
+
+      - name: Verify Stretch Flex Motion
+        shell: bash
+        run: |
+          test -s StretchFlexMotion/StretchFlexMotion.dll
+          file StretchFlexMotion/StretchFlexMotion.dll
+          sha256sum StretchFlexMotion/StretchFlexMotion.dll
+          strings -el StretchFlexMotion/StretchFlexMotion.dll | grep -F "Stretch Flex Motion"
+          strings -el StretchFlexMotion/StretchFlexMotion.dll | grep -F "Stretchiness"
+          strings -el StretchFlexMotion/StretchFlexMotion.dll | grep -F "Flexibility"
+
+      - name: Upload Stretch Flex Motion DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: StretchFlexMotion
+          path: StretchFlexMotion/StretchFlexMotion.dll
           if-no-files-found: error
 
       - name: Build
