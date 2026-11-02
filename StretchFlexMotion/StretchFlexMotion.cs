@@ -151,7 +151,7 @@ namespace StretchFlexMotion
                 if (root == null)
                 {
                     LogWaiting("Avatar component found, but its visual transform is unavailable.");
-                    return;
+                    return false;
                 }
 
                 if (!SameObject(manager, rigManager) || !SameObject(root, avatarRoot))
