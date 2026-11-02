@@ -230,7 +230,13 @@ namespace StretchFlexMotion
                     object connectedBody = MemberOrGetter(joint, "connectedBody", "ConnectedBody");
                     object connectedTransform = connectedBody == null ? null : MemberOrGetter(connectedBody, "transform", "Transform");
                     string connectedName = Name(connectedTransform);
-                    int group = ClassifyJoint(ownName + " " + connectedName);
+                    // Prefer the body carrying this joint. Only fall back to the connected
+                    // body when the joint object's own transform has a generic name.
+                    int group = ClassifyJoint(ownName);
+                    if (group == 0)
+                        group = ClassifyJoint(connectedName);
+                    if (group == 0)
+                        group = ClassifyJoint(ownName + " " + connectedName);
 
                     if (group != 0)
                     {
