@@ -138,7 +138,7 @@ namespace StretchFlexMotion
                 if (avatar == null)
                 {
                     LogWaiting("Player RigManager found; waiting for its avatar visual.");
-                    return;
+                    return false;
                 }
 
                 object root = MemberOrGetter(avatar, "transform", "Transform");
