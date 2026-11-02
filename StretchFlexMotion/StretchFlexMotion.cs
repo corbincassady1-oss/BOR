@@ -2,318 +2,41 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using MelonLoader;
-
-[assembly: MelonInfo(typeof(StretchFlexMotion.Mod), "Stretch Flex Motion", "1.2.0", "BOR")]
+[assembly: MelonInfo(typeof(StretchFlexMotion.Mod), "Stretch Flex Motion", "1.3.0", "BOR")]
 [assembly: MelonGame("Stress Level Zero", "BONELAB")]
-
-namespace StretchFlexMotion
-{
-    public class Mod : MelonMod
-    {
-        private MelonPreferences_Entry<bool> enabled;
-        private MelonPreferences_Entry<float> stretchiness;
-        private MelonPreferences_Entry<float> flexibility;
-        private MelonPreferences_Entry<float> stretchSpeed;
-        private MelonPreferences_Entry<float> flexSpeed;
-        private MelonPreferences_Entry<float> armStretch;
-        private MelonPreferences_Entry<float> legStretch;
-        private MelonPreferences_Entry<float> spineStretch;
-        private MelonPreferences_Entry<float> hipFlex;
-        private MelonPreferences_Entry<float> maxBend;
-
-        private readonly Dictionary<object, object> baseScale = new Dictionary<object, object>();
-        private readonly Dictionary<object, object> baseRotation = new Dictionary<object, object>();
-        private readonly List<object> bones = new List<object>();
-        private object rigManager;
-        private object rigRoot;
-        private float nextScan;
-        private float nextLog;
-        private float lastY;
-        private bool menuMade;
-
-        public override void OnInitializeMelon()
-        {
-            var cat = MelonPreferences.CreateCategory("StretchFlexMotion", "Stretch Flex Motion");
-            enabled = cat.CreateEntry("Enabled", true);
-            stretchiness = cat.CreateEntry("Stretchiness", 1.5f);
-            flexibility = cat.CreateEntry("Flexibility", 1.5f);
-            stretchSpeed = cat.CreateEntry("Stretch Speed", 4.0f);
-            flexSpeed = cat.CreateEntry("Flex Speed", 4.0f);
-            armStretch = cat.CreateEntry("Arm Stretch", 1.5f);
-            legStretch = cat.CreateEntry("Leg Stretch", 1.5f);
-            spineStretch = cat.CreateEntry("Spine Stretch", 1.5f);
-            hipFlex = cat.CreateEntry("Hip Flexibility", 1.5f);
-            maxBend = cat.CreateEntry("Maximum Bend", 35.0f);
-            MelonLogger.Msg("[Stretch Flex Motion] 1.2.0 loaded.");
-        }
-
-        public override void OnLateInitializeMelon() => TryMenu();
-
-        public override void OnUpdate()
-        {
-            if (!enabled.Value)
-            {
-                Restore();
-                return;
-            }
-
-            float now = GetTime();
-            if (now >= nextScan)
-            {
-                nextScan = now + 0.5f;
-                FindPlayerRig();
-                TryMenu();
-            }
-        }
-
-        public override void OnLateUpdate()
-        {
-            if (!enabled.Value || bones.Count == 0) return;
-            Apply();
-        }
-
-        public override void OnDeinitializeMelon() => Restore();
-
-        private void FindPlayerRig()
-        {
-            try
-            {
-                object playerType = FindType("BoneLib.Player");
-                object manager = GetStatic((Type)playerType, "RigManager");
-                if (manager == null) manager = GetStatic((Type)playerType, "rigManager");
-
-                if (manager == null)
-                {
-                    Type rmType = FindRigManagerType();
-                    if (rmType != null) manager = FindFirstObjectOfType(rmType);
-                }
-
-                if (manager == null) return;
-
-                object physicsRig = GetMember(manager, "physicsRig");
-                object root = physicsRig != null ? GetMember(physicsRig, "transform") : GetMember(manager, "transform");
-                if (root == null) return;
-
-                if (!SameObject(manager, rigManager) || !SameObject(root, rigRoot))
-                {
-                    Restore();
-                    baseScale.Clear();
-                    baseRotation.Clear();
-                    rigManager = manager;
-                    rigRoot = root;
-                    bones.Clear();
-                }
-
-                if (bones.Count == 0)
-                {
-                    CollectTransforms(root);
-                    lastY = GetFloat(GetMember(root, "position"), "y");
-                    MelonLogger.Msg("[Stretch Flex Motion] Found player rig. Transform count: " + bones.Count);
-                }
-
-                if (GetTime() >= nextLog)
-                {
-                    nextLog = GetTime() + 5f;
-                    MelonLogger.Msg("[Stretch Flex Motion] Applying to " + bones.Count + " transforms.");
-                }
-            }
-            catch (Exception e)
-            {
-                MelonLogger.Warning("[Stretch Flex Motion] Rig discovery: " + e.Message);
-            }
-        }
-
-        private void CollectTransforms(object root)
-        {
-            try
-            {
-                object countValue = GetMember(root, "childCount");
-                int count = Convert.ToInt32(countValue);
-                for (int i = 0; i < count; i++)
-                {
-                    object child = Call(root, "GetChild", i);
-                    if (child == null) continue;
-                    bones.Add(child);
-                    CollectTransforms(child);
-                }
-            }
-            catch { }
-        }
-
-        private void Apply()
-        {
-            try
-            {
-                float time = GetTime();
-                float dt = Math.Max(GetDelta(), 0.001f);
-                object pos = GetMember(rigRoot, "position");
-                float y = GetFloat(pos, "y");
-                float velocity = Math.Abs((y - lastY) / dt);
-                lastY = y;
-
-                float movement = Clamp01(velocity * 0.5f + 0.25f);
-                float stretch = Clamp(stretchiness.Value, 0f, 3f) * (0.55f + movement * 0.45f);
-                float flex = Clamp(flexibility.Value, 0f, 3f);
-                float bendLimit = Clamp(maxBend.Value, 0f, 90f);
-                float scaleLerp = Clamp01(1f - (float)Math.Exp(-Math.Max(stretchSpeed.Value, 0.1f) * dt));
-                float rotLerp = Clamp01(1f - (float)Math.Exp(-Math.Max(flexSpeed.Value, 0.1f) * dt));
-
-                foreach (object tr in bones)
-                {
-                    if (tr == null) continue;
-                    string name = GetName(tr).ToLowerInvariant();
-                    float group = GroupAmount(name);
-                    if (group <= 0f) continue;
-
-                    if (!baseScale.ContainsKey(tr)) baseScale[tr] = GetMember(tr, "localScale");
-                    if (!baseRotation.ContainsKey(tr)) baseRotation[tr] = GetMember(tr, "localRotation");
-
-                    object originalScale = baseScale[tr];
-                    object currentScale = GetMember(tr, "localScale");
-                    if (originalScale != null && currentScale != null)
-                    {
-                        float amount = 1f + stretch * group * 0.40f;
-                        object target = ScaleForBone(originalScale, amount, name);
-                        if (target != null) SetMember(tr, "localScale", LerpVector(currentScale, target, scaleLerp));
-                    }
-
-                    object originalRotation = baseRotation[tr];
-                    object currentRotation = GetMember(tr, "localRotation");
-                    if (originalRotation != null && currentRotation != null)
-                    {
-                        float phase = (GetId(tr) % 1000) * 0.013f;
-                        float wave = (float)Math.Sin(time * Math.Max(flexSpeed.Value, 0.1f) + phase);
-                        float side = (float)Math.Cos(time * Math.Max(flexSpeed.Value, 0.1f) * 0.73f + phase);
-                        float bend = wave * bendLimit * 0.50f * flex * group;
-                        float twist = side * bendLimit * 0.30f * flex * group;
-                        object targetRot = MultiplyRotation(originalRotation, Euler(bend, twist, bend * 0.20f));
-                        if (targetRot != null) SetMember(tr, "localRotation", Slerp(currentRotation, targetRot, rotLerp));
-                    }
-                }
-            }
-            catch (Exception e)
-            {
-                MelonLogger.Warning("[Stretch Flex Motion] Apply: " + e.Message);
-            }
-        }
-
-        private float GroupAmount(string n)
-        {
-            if (n.Contains("upperarm") || n.Contains("upper_arm") || n.Contains("lowerarm") || n.Contains("lower_arm") || n.Contains("forearm") || n.Contains("arm") || n.Contains("hand")) return Clamp(armStretch.Value, 0f, 3f);
-            if (n.Contains("thigh") || n.Contains("upperleg") || n.Contains("upper_leg") || n.Contains("lowerleg") || n.Contains("lower_leg") || n.Contains("calf") || n.Contains("shin") || n.Contains("leg") || n.Contains("foot") || n.Contains("toe")) return Clamp(legStretch.Value, 0f, 3f);
-            if (n.Contains("spine") || n.Contains("chest") || n.Contains("abdomen") || n.Contains("torso") || n.Contains("neck")) return Clamp(spineStretch.Value, 0f, 3f);
-            if (n.Contains("pelvis") || n.Contains("hip") || n.Contains("hips")) return Clamp(hipFlex.Value, 0f, 3f);
-            return 0f;
-        }
-
-        private object ScaleForBone(object v, float factor, string name)
-        {
-            float x = Component(v, "x"), y = Component(v, "y"), z = Component(v, "z");
-            if (name.Contains("upperarm") || name.Contains("forearm") || name.Contains("thigh") || name.Contains("calf") || name.Contains("shin") || name.Contains("spine") || name.Contains("chest") || name.Contains("abdomen") || name.Contains("leg") || name.Contains("arm"))
-                return MakeVector(x, y * factor, z);
-            return MakeVector(x * (1f + (factor - 1f) * 0.30f), y * factor, z * (1f + (factor - 1f) * 0.30f));
-        }
-
-        private void Restore()
-        {
-            try
-            {
-                foreach (var p in baseScale) if (p.Value != null) SetMember(p.Key, "localScale", p.Value);
-                foreach (var p in baseRotation) if (p.Value != null) SetMember(p.Key, "localRotation", p.Value);
-            }
-            catch { }
-        }
-
-        private void TryMenu()
-        {
-            if (menuMade) return;
-            try
-            {
-                Type pageType = FindType("BoneLib.BoneMenu.Page");
-                if (pageType == null) return;
-                object root = pageType.GetProperty("Root", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
-                if (root == null) return;
-                Type colorType = FindType("UnityEngine.Color");
-                object cyan = Activator.CreateInstance(colorType, new object[] { 0.1f, 0.9f, 1f, 1f });
-                MethodInfo createPage = pageType.GetMethod("CreatePage", new[] { typeof(string), colorType, typeof(int), typeof(bool) });
-                if (createPage == null) return;
-                object page = createPage.Invoke(root, new object[] { "Stretch Flex Motion", cyan, 0, true });
-                if (page == null) return;
-                CreateBool(page, "Enabled", enabled.Value, v => enabled.Value = v);
-                CreateFloat(page, "Stretchiness", stretchiness.Value, 0.1f, 0f, 3f, v => stretchiness.Value = v);
-                CreateFloat(page, "Flexibility", flexibility.Value, 0.1f, 0f, 3f, v => flexibility.Value = v);
-                CreateFloat(page, "Stretch Speed", stretchSpeed.Value, 0.1f, 0.5f, 10f, v => stretchSpeed.Value = v);
-                CreateFloat(page, "Flex Speed", flexSpeed.Value, 0.1f, 0.5f, 10f, v => flexSpeed.Value = v);
-                CreateFloat(page, "Arm Stretch", armStretch.Value, 0.1f, 0f, 3f, v => armStretch.Value = v);
-                CreateFloat(page, "Leg Stretch", legStretch.Value, 0.1f, 0f, 3f, v => legStretch.Value = v);
-                CreateFloat(page, "Spine Stretch", spineStretch.Value, 0.1f, 0f, 3f, v => spineStretch.Value = v);
-                CreateFloat(page, "Hip Flexibility", hipFlex.Value, 0.1f, 0f, 3f, v => hipFlex.Value = v);
-                CreateFloat(page, "Maximum Bend", maxBend.Value, 1f, 0f, 90f, v => maxBend.Value = v);
-                menuMade = true;
-            }
-            catch (Exception e) { MelonLogger.Warning("[Stretch Flex Motion] BoneMenu: " + e.Message); }
-        }
-
-        private void CreateBool(object page, string name, bool value, Action<bool> cb)
-        {
-            Type colorType = FindType("UnityEngine.Color");
-            object white = Activator.CreateInstance(colorType, new object[] { 1f, 1f, 1f, 1f });
-            foreach (var m in page.GetType().GetMethods()) if (m.Name == "CreateBool" && m.GetParameters().Length == 4) { m.Invoke(page, new object[] { name, white, value, cb }); return; }
-        }
-
-        private void CreateFloat(object page, string name, float value, float step, float min, float max, Action<float> cb)
-        {
-            Type colorType = FindType("UnityEngine.Color");
-            object white = Activator.CreateInstance(colorType, new object[] { 1f, 1f, 1f, 1f });
-            foreach (var m in page.GetType().GetMethods()) if (m.Name == "CreateFloat" && m.GetParameters().Length == 7) { m.Invoke(page, new object[] { name, white, value, step, min, max, cb }); return; }
-        }
-
-        private static bool SameObject(object a, object b) { return a != null && b != null && ReferenceEquals(a, b); }
-        private static Type FindRigManagerType()
-        {
-            foreach (var a in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                try
-                {
-                    Type t = a.GetType("Il2CppSLZ.Marrow.RigManager", false) ?? a.GetType("SLZ.Marrow.RigManager", false);
-                    if (t != null) return t;
-                    foreach (var x in a.GetTypes()) if (x.Name == "RigManager") return x;
-                }
-                catch { }
-            }
-            return null;
-        }
-        private static object FindFirstObjectOfType(Type t)
-        {
-            try
-            {
-                Type objectType = FindType("UnityEngine.Object");
-                MethodInfo m = objectType.GetMethod("FindFirstObjectByType", BindingFlags.Public | BindingFlags.Static, null, new[] { typeof(Type) }, null) ?? objectType.GetMethod("FindObjectOfType", BindingFlags.Public | BindingFlags.Static, null, new[] { typeof(Type) }, null);
-                return m?.Invoke(null, new object[] { t });
-            }
-            catch { return null; }
-        }
-        private static Type FindType(string name)
-        {
-            foreach (var a in AppDomain.CurrentDomain.GetAssemblies()) { Type t = a.GetType(name, false); if (t != null) return t; }
-            return Type.GetType(name + ", UnityEngine.CoreModule") ?? Type.GetType(name + ", BoneLib") ?? Type.GetType(name);
-        }
-        private static object GetStatic(Type t, string name) { if (t == null) return null; var p = t.GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static); if (p != null) return p.GetValue(null); return t.GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)?.GetValue(null); }
-        private static object GetMember(object o, string name) { if (o == null) return null; var p = o.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static); if (p != null) return p.GetValue(o); var f = o.GetType().GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static); return f?.GetValue(o); }
-        private static void SetMember(object o, string name, object v) { if (o == null) return; var p = o.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance); if (p != null && p.CanWrite) { p.SetValue(o, v); return; } o.GetType().GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)?.SetValue(o, v); }
-        private static object Call(object o, string name, params object[] args) { try { var methods = o.GetType().GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance); foreach (var m in methods) if (m.Name == name && m.GetParameters().Length == args.Length) return m.Invoke(o, args); } catch { } return null; }
-        private static string GetName(object o) => Convert.ToString(GetMember(o, "name")) ?? "";
-        private static int GetId(object o) { try { return Convert.ToInt32(o.GetType().GetMethod("GetInstanceID")?.Invoke(o, null)); } catch { return 1; } }
-        private static float GetFloat(object v, string p) { try { return Convert.ToSingle(GetMember(v, p)); } catch { return 0f; } }
-        private static float GetTime() { try { return Convert.ToSingle(FindType("UnityEngine.Time").GetProperty("time").GetValue(null)); } catch { return 0f; } }
-        private static float GetDelta() { try { return Convert.ToSingle(FindType("UnityEngine.Time").GetProperty("deltaTime").GetValue(null)); } catch { return 0.016f; } }
-        private static object MakeVector(float x, float y, float z) => Activator.CreateInstance(FindType("UnityEngine.Vector3"), new object[] { x, y, z });
-        private static float Component(object v, string p) => GetFloat(v, p);
-        private static object LerpVector(object a, object b, float t) => FindType("UnityEngine.Vector3").GetMethod("Lerp", BindingFlags.Public | BindingFlags.Static).Invoke(null, new object[] { a, b, t });
-        private static object Euler(float x, float y, float z) => FindType("UnityEngine.Quaternion").GetMethod("Euler", new[] { typeof(float), typeof(float), typeof(float) }).Invoke(null, new object[] { x, y, z });
-        private static object MultiplyRotation(object a, object b) { try { return a.GetType().GetMethod("op_Multiply", BindingFlags.Public | BindingFlags.Static).Invoke(null, new[] { a, b }); } catch { return null; } }
-        private static object Slerp(object a, object b, float t) => FindType("UnityEngine.Quaternion").GetMethod("Slerp", BindingFlags.Public | BindingFlags.Static).Invoke(null, new object[] { a, b, t });
-        private static float Clamp(float v, float a, float b) => v < a ? a : (v > b ? b : v);
-        private static float Clamp01(float v) => Clamp(v, 0f, 1f);
-    }
+namespace StretchFlexMotion {
+ public class Mod:MelonMod {
+  MelonPreferences_Entry<bool> enabled; MelonPreferences_Entry<float> stretchiness,flexibility,stretchSpeed,flexSpeed,armStretch,legStretch,spineStretch,hipFlex,maxBend;
+  readonly List<object> bones=new List<object>(); readonly Dictionary<object,object> baseScale=new Dictionary<object,object>(); readonly Dictionary<object,object> baseRotation=new Dictionary<object,object>();
+  object rigManager,rigRoot; float nextScan,nextLog,lastY; bool menuMade;
+  public override void OnInitializeMelon(){var c=MelonPreferences.CreateCategory("StretchFlexMotion","Stretch Flex Motion"); enabled=c.CreateEntry("Enabled",true); stretchiness=c.CreateEntry("Stretchiness",1.5f); flexibility=c.CreateEntry("Flexibility",1.5f); stretchSpeed=c.CreateEntry("Stretch Speed",3f); flexSpeed=c.CreateEntry("Flex Speed",3f); armStretch=c.CreateEntry("Arm Stretch",1.5f); legStretch=c.CreateEntry("Leg Stretch",1.5f); spineStretch=c.CreateEntry("Spine Stretch",1.5f); hipFlex=c.CreateEntry("Hip Flexibility",1.5f); maxBend=c.CreateEntry("Maximum Bend",35f); MelonLogger.Msg("[Stretch Flex Motion] 1.3.0 loaded.");}
+  public override void OnLateInitializeMelon(){TryMenu();}
+  public override void OnUpdate(){if(!enabled.Value){Restore();return;} float t=TimeValue("time"); if(t>=nextScan){nextScan=t+.25f;FindPlayerRig();TryMenu();}}
+  public override void OnLateUpdate(){if(enabled.Value&&bones.Count>0)Apply();}
+  public override void OnDeinitializeMelon(){Restore();}
+  void FindPlayerRig(){try{Type pt=FindType("BoneLib.Player"); object manager=GetStatic(pt,"RigManager")??GetStatic(pt,"rigManager"); if(manager==null){Type rm=FindRigManagerType();manager=rm==null?null:FindObject(rm);} if(manager==null)return; object physics=MemberOrGetter(manager,"PhysicsRig","physicsRig"); object root=physics==null?null:MemberOrGetter(physics,"transform","Transform"); if(root==null)root=MemberOrGetter(manager,"transform","Transform"); if(root==null)return; if(!Same(manager,rigManager)||!Same(root,rigRoot)){Restore();baseScale.Clear();baseRotation.Clear();bones.Clear();rigManager=manager;rigRoot=root;} if(bones.Count==0){object pelvis=MemberOrGetter(physics,"m_pelvis","pelvis","Pelvis"); object ptf=pelvis==null?null:MemberOrGetter(pelvis,"transform","Transform"); if(ptf!=null)Collect(ptf); if(bones.Count<4)Collect(root); lastY=Component(MemberOrGetter(root,"position","Position"),"y"); MelonLogger.Msg("[Stretch Flex Motion] Rig found; transforms: "+bones.Count);} if(TimeValue("time")>=nextLog){nextLog=TimeValue("time")+5f;MelonLogger.Msg("[Stretch Flex Motion] Active on "+bones.Count+" transforms.");}}catch(Exception e){MelonLogger.Warning("[Stretch Flex Motion] Rig discovery: "+e.Message);}}
+  void Collect(object root){if(root==null)return;try{int n=Convert.ToInt32(MemberOrGetter(root,"childCount","ChildCount"));for(int i=0;i<n;i++){object child=Call(root,"GetChild",i);if(child==null)child=Call(root,"get_GetChild",i);if(child==null)continue;if(!bones.Contains(child))bones.Add(child);Collect(child);}}catch{}}
+  void Apply(){try{float time=TimeValue("time"),dt=Math.Max(TimeValue("deltaTime"),.001f);float y=Component(MemberOrGetter(rigRoot,"position","Position"),"y");float velocity=Math.Abs((y-lastY)/dt);lastY=y;float movement=Clamp01(.2f+velocity*.45f),stretch=Clamp(stretchiness.Value,0f,3f)*(.65f+movement*.35f),flex=Clamp(flexibility.Value,0f,3f),bendLimit=Clamp(maxBend.Value,0f,90f);float sl=Clamp01(1f-(float)Math.Exp(-Math.Max(.1f,stretchSpeed.Value)*dt)),rl=Clamp01(1f-(float)Math.Exp(-Math.Max(.1f,flexSpeed.Value)*dt));foreach(object tr in bones){if(tr==null)continue;string n=Name(tr).ToLowerInvariant();float group=Group(n);if(group<=0)continue;if(!baseScale.ContainsKey(tr))baseScale[tr]=MemberOrGetter(tr,"localScale","LocalScale");if(!baseRotation.ContainsKey(tr))baseRotation[tr]=MemberOrGetter(tr,"localRotation","LocalRotation");object bs=baseScale[tr],br=baseRotation[tr],cs=MemberOrGetter(tr,"localScale","LocalScale"),cr=MemberOrGetter(tr,"localRotation","LocalRotation");if(bs!=null&&cs!=null){object target=StretchScale(bs,1f+stretch*group*.32f,n),result=LerpVector(cs,target,sl);if(result!=null)SetMember(tr,"localScale",result);}if(br!=null&&cr!=null&&flex>0){float phase=(GetId(tr)&1023)*.011f,w=(float)Math.Sin(time*Math.Max(.1f,flexSpeed.Value)+phase),q=(float)Math.Cos(time*Math.Max(.1f,flexSpeed.Value)*.71f+phase);object targetRot=Multiply(br,Euler(w*bendLimit*.45f*flex*group,q*bendLimit*.25f*flex*group,w*bendLimit*.45f*flex*group*.18f));if(targetRot!=null)SetMember(tr,"localRotation",Slerp(cr,targetRot,rl));}}}catch(Exception e){MelonLogger.Warning("[Stretch Flex Motion] Apply: "+e.Message);}}
+  float Group(string n){if(n.Contains("upperarm")||n.Contains("lowerarm")||n.Contains("forearm")||n=="arm"||n.Contains("arm_")||n.Contains("hand"))return Clamp(armStretch.Value,0,3);if(n.Contains("thigh")||n.Contains("upperleg")||n.Contains("lowerleg")||n.Contains("calf")||n.Contains("shin")||n=="leg"||n.Contains("leg_")||n.Contains("foot")||n.Contains("toe"))return Clamp(legStretch.Value,0,3);if(n.Contains("spine")||n.Contains("chest")||n.Contains("abdomen")||n.Contains("torso")||n.Contains("neck"))return Clamp(spineStretch.Value,0,3);if(n.Contains("pelvis")||n.Contains("hip")||n.Contains("hips"))return Clamp(hipFlex.Value,0,3);return 0;}
+  object StretchScale(object v,float f,string n){float x=Component(v,"x"),y=Component(v,"y"),z=Component(v,"z");bool longBone=n.Contains("arm")||n.Contains("leg")||n.Contains("thigh")||n.Contains("calf")||n.Contains("shin")||n.Contains("spine")||n.Contains("chest")||n.Contains("abdomen");return Vector(longBone?x:x*(1f+(f-1f)*.25f),y*f,longBone?z:z*(1f+(f-1f)*.25f));}
+  void Restore(){try{foreach(var p in baseScale)if(p.Value!=null)SetMember(p.Key,"localScale",p.Value);foreach(var p in baseRotation)if(p.Value!=null)SetMember(p.Key,"localRotation",p.Value);}catch{}}
+  void TryMenu(){if(menuMade)return;try{Type pageType=FindType("BoneLib.BoneMenu.Page");if(pageType==null)return;object root=pageType.GetProperty("Root",BindingFlags.Public|BindingFlags.Static)?.GetValue(null);if(root==null)return;Type color=FindType("UnityEngine.Color");object cyan=Activator.CreateInstance(color,new object[]{.1f,.9f,1f,1f});MethodInfo cp=pageType.GetMethod("CreatePage",new[]{typeof(string),color,typeof(int),typeof(bool)});if(cp==null)return;object page=cp.Invoke(root,new object[]{"Stretch Flex Motion",cyan,0,true});if(page==null)return;Bool(page,"Enabled",enabled.Value,v=>enabled.Value=v);Float(page,"Stretchiness",stretchiness.Value,.1f,0,3,v=>stretchiness.Value=v);Float(page,"Flexibility",flexibility.Value,.1f,0,3,v=>flexibility.Value=v);Float(page,"Stretch Speed",stretchSpeed.Value,.1f,.5f,10,v=>stretchSpeed.Value=v);Float(page,"Flex Speed",flexSpeed.Value,.1f,.5f,10,v=>flexSpeed.Value=v);Float(page,"Arm Stretch",armStretch.Value,.1f,0,3,v=>armStretch.Value=v);Float(page,"Leg Stretch",legStretch.Value,.1f,0,3,v=>legStretch.Value=v);Float(page,"Spine Stretch",spineStretch.Value,.1f,0,3,v=>spineStretch.Value=v);Float(page,"Hip Flexibility",hipFlex.Value,.1f,0,3,v=>hipFlex.Value=v);Float(page,"Maximum Bend",maxBend.Value,1f,0,90,v=>maxBend.Value=v);menuMade=true;}catch(Exception e){MelonLogger.Warning("[Stretch Flex Motion] BoneMenu: "+e.Message);}}
+  void Bool(object page,string name,bool value,Action<bool> cb){Type c=FindType("UnityEngine.Color");object white=Activator.CreateInstance(c,new object[]{1f,1f,1f,1f});foreach(var m in page.GetType().GetMethods())if(m.Name=="CreateBool"&&m.GetParameters().Length==4){m.Invoke(page,new object[]{name,white,value,cb});return;}}
+  void Float(object page,string name,float value,float step,float min,float max,Action<float> cb){Type c=FindType("UnityEngine.Color");object white=Activator.CreateInstance(c,new object[]{1f,1f,1f,1f});foreach(var m in page.GetType().GetMethods())if(m.Name=="CreateFloat"&&m.GetParameters().Length==7){m.Invoke(page,new object[]{name,white,value,step,min,max,cb});return;}}
+  static object MemberOrGetter(object o,params string[] names){if(o==null)return null;foreach(string n in names){object v=GetMember(o,n);if(v!=null)return v;v=CallNoArg(o,"get_"+n);if(v!=null)return v;}return null;}
+  static object CallNoArg(object o,string n){try{return o?.GetType().GetMethod(n,BindingFlags.Public|BindingFlags.NonPublic|BindingFlags.Instance)?.Invoke(o,null);}catch{return null;}}
+  static bool Same(object a,object b){return a!=null&&b!=null&&ReferenceEquals(a,b);}
+  static Type FindRigManagerType(){foreach(var a in AppDomain.CurrentDomain.GetAssemblies())try{Type t=a.GetType("Il2CppSLZ.Marrow.RigManager",false)??a.GetType("SLZ.Marrow.RigManager",false);if(t!=null)return t;foreach(var x in a.GetTypes())if(x.Name=="RigManager")return x;}catch{}return null;}
+  static object FindObject(Type t){try{Type o=FindType("UnityEngine.Object");MethodInfo m=o.GetMethod("FindFirstObjectByType",BindingFlags.Public|BindingFlags.Static,null,new[]{typeof(Type)},null)??o.GetMethod("FindObjectOfType",BindingFlags.Public|BindingFlags.Static,null,new[]{typeof(Type)},null);return m?.Invoke(null,new object[]{t});}catch{return null;}}
+  static Type FindType(string n){foreach(var a in AppDomain.CurrentDomain.GetAssemblies()){Type t=a.GetType(n,false);if(t!=null)return t;}return Type.GetType(n+", UnityEngine.CoreModule")??Type.GetType(n+", BoneLib")??Type.GetType(n);}
+  static object GetStatic(Type t,string n){if(t==null)return null;try{var p=t.GetProperty(n,BindingFlags.Public|BindingFlags.NonPublic|BindingFlags.Static);if(p!=null)return p.GetValue(null);return t.GetField(n,BindingFlags.Public|BindingFlags.NonPublic|BindingFlags.Static)?.GetValue(null);}catch{return null;}}
+  static object GetMember(object o,string n){try{if(o==null)return null;var p=o.GetType().GetProperty(n,BindingFlags.Public|BindingFlags.NonPublic|BindingFlags.Instance|BindingFlags.Static);if(p!=null)return p.GetValue(o);var f=o.GetType().GetField(n,BindingFlags.Public|BindingFlags.NonPublic|BindingFlags.Instance|BindingFlags.Static);return f?.GetValue(o);}catch{return null;}}
+  static void SetMember(object o,string n,object v){try{if(o==null)return;var p=o.GetType().GetProperty(n,BindingFlags.Public|BindingFlags.NonPublic|BindingFlags.Instance);if(p!=null&&p.CanWrite){p.SetValue(o,v);return;}o.GetType().GetField(n,BindingFlags.Public|BindingFlags.NonPublic|BindingFlags.Instance)?.SetValue(o,v);}catch{}}
+  static object Call(object o,string n,params object[] args){try{foreach(var m in o.GetType().GetMethods(BindingFlags.Public|BindingFlags.NonPublic|BindingFlags.Instance))if(m.Name==n&&m.GetParameters().Length==args.Length)return m.Invoke(o,args);}catch{}return null;}
+  static string Name(object o){return Convert.ToString(MemberOrGetter(o,"name","Name"))??"";} static int GetId(object o){try{return Convert.ToInt32(o.GetType().GetMethod("GetInstanceID")?.Invoke(o,null));}catch{return 1;}}
+  static float Component(object v,string p){try{return Convert.ToSingle(GetMember(v,p));}catch{return 0;}} static float TimeValue(string p){try{Type t=FindType("UnityEngine.Time");return Convert.ToSingle(t.GetProperty(p,BindingFlags.Public|BindingFlags.Static)?.GetValue(null));}catch{return .016f;}}
+  static object Vector(float x,float y,float z){try{return Activator.CreateInstance(FindType("UnityEngine.Vector3"),new object[]{x,y,z});}catch{return null;}} static object LerpVector(object a,object b,float t){try{return FindType("UnityEngine.Vector3").GetMethod("Lerp",BindingFlags.Public|BindingFlags.Static).Invoke(null,new object[]{a,b,t});}catch{return null;}}
+  static object Euler(float x,float y,float z){try{return FindType("UnityEngine.Quaternion").GetMethod("Euler",new[]{typeof(float),typeof(float),typeof(float)}).Invoke(null,new object[]{x,y,z});}catch{return null;}} static object Multiply(object a,object b){try{return a.GetType().GetMethod("op_Multiply",BindingFlags.Public|BindingFlags.Static).Invoke(null,new[]{a,b});}catch{return null;}} static object Slerp(object a,object b,float t){try{return FindType("UnityEngine.Quaternion").GetMethod("Slerp",BindingFlags.Public|BindingFlags.Static).Invoke(null,new object[]{a,b,t});}catch{return null;}}
+  static float Clamp(float v,float a,float b){return v<a?a:(v>b?b:v);} static float Clamp01(float v){return Clamp(v,0,1);}
+ }
 }
