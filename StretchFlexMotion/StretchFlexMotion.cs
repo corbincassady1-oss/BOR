@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using MelonLoader;
 
-[assembly: MelonInfo(typeof(StretchFlexMotion.Mod), "Stretch Flex Motion", "1.5.0", "BOR")]
+[assembly: MelonInfo(typeof(StretchFlexMotion.Mod), "Stretch Flex Motion", "1.6.0", "BOR")]
 [assembly: MelonGame("Stress Level Zero", "BONELAB")]
 
 namespace StretchFlexMotion
@@ -12,66 +12,72 @@ namespace StretchFlexMotion
     {
         private MelonPreferences_Entry<bool> enabled;
         private MelonPreferences_Entry<bool> flexibleWaist;
-        private MelonPreferences_Entry<bool> safetyMigration;
+        private MelonPreferences_Entry<bool> safeDefaults;
         private MelonPreferences_Entry<float> stretchiness;
         private MelonPreferences_Entry<float> flexibility;
-                private MelonPreferences_Entry<float> armStretch;
-        private MelonPreferences_Entry<float> legStretch;
-        private MelonPreferences_Entry<float> spineStretch;
+        private MelonPreferences_Entry<float> armFlex;
+        private MelonPreferences_Entry<float> legFlex;
+        private MelonPreferences_Entry<float> spineFlex;
         private MelonPreferences_Entry<float> hipFlex;
         private MelonPreferences_Entry<float> waistFlex;
         private MelonPreferences_Entry<float> maxBend;
-
-        private sealed class BoneState
-        {
-            public object Transform;
-            public string Name;
-            public int Group;
-            public object OriginalScale;
-            public object OriginalRotation;
-        }
-
-        // These are avatar-renderer transforms only. PhysicsRig is deliberately never accessed.
-        private readonly List<BoneState> bones = new List<BoneState>();
-        private object rigManager;
-        private object avatarRoot;
-        private float nextScan;
-        private bool menuMade;
-        private bool activeLastFrame;
-        private bool waitingLogged;
-        private bool appliedForCurrentEnable;
 
         private const int Arms = 1;
         private const int Legs = 2;
         private const int Spine = 3;
         private const int Hips = 4;
         private const int Waist = 5;
+        private const int Chest = 6;
+
+        private sealed class JointState
+        {
+            public object Joint;
+            public string Name;
+            public int Group;
+            public object AngularXDrive;
+            public object AngularYZDrive;
+            public object SlerpDrive;
+            public object LowAngularXLimit;
+            public object HighAngularXLimit;
+            public object AngularYLimit;
+            public object AngularZLimit;
+            public object AngularXMotion;
+            public object AngularYMotion;
+            public object AngularZMotion;
+        }
+
+        private readonly List<JointState> jointStates = new List<JointState>();
+        private object physicsRig;
+        private object physicsRoot;
+        private Type configurableJointType;
+        private float nextScan;
+        private bool menuMade;
+        private bool wasEnabled;
+        private bool waitingLogged;
 
         public override void OnInitializeMelon()
         {
             var cat = MelonPreferences.CreateCategory("StretchFlexMotion", "Stretch Flex Motion");
             enabled = cat.CreateEntry("Enabled", false);
             flexibleWaist = cat.CreateEntry("Flexible Waist", true);
-            safetyMigration = cat.CreateEntry("SafetyMigration150", false);
-
+            safeDefaults = cat.CreateEntry("SafeDefaults160", false);
             stretchiness = cat.CreateEntry("Stretchiness", 1.5f);
             flexibility = cat.CreateEntry("Flexibility", 1.5f);
-            armStretch = cat.CreateEntry("Arm Stretch", 1.5f);
-            legStretch = cat.CreateEntry("Leg Stretch", 1.5f);
-            spineStretch = cat.CreateEntry("Spine Stretch", 1.5f);
+            armFlex = cat.CreateEntry("Arm Flexibility", 1.5f);
+            legFlex = cat.CreateEntry("Leg Flexibility", 1.5f);
+            spineFlex = cat.CreateEntry("Chest Flexibility", 1.5f);
             hipFlex = cat.CreateEntry("Hip Flexibility", 1.5f);
             waistFlex = cat.CreateEntry("Waist Flexibility", 1.5f);
-            maxBend = cat.CreateEntry("Maximum Bend", 20f);
+            maxBend = cat.CreateEntry("Maximum Bend", 25f);
 
-            // A prior build could leave Enabled=true in the saved config.
-            // Force one safe-off migration when this version is first installed.
-            if (!safetyMigration.Value)
+            // New physics-joint implementation is opt-in, regardless of a prior build's saved toggle.
+            if (!safeDefaults.Value)
             {
                 enabled.Value = false;
-                safetyMigration.Value = true;
+                safeDefaults.Value = true;
             }
 
-            MelonLogger.Msg("[Stretch Flex Motion] 1.5.0 loaded. One-shot visual-avatar mode; settings apply once when Enabled is pressed.");
+            MelonLogger.Msg("[Stretch Flex Motion] 1.6.0 loaded. One-shot physics-joint mode; disabled until enabled.");
         }
 
         public override void OnLateInitializeMelon()
@@ -83,33 +89,32 @@ namespace StretchFlexMotion
         {
             if (!enabled.Value)
             {
-                if (activeLastFrame || bones.Count > 0)
-                    RestoreAndClear();
+                if (wasEnabled || jointStates.Count > 0)
+                    RestoreJoints();
 
-                activeLastFrame = false;
-                appliedForCurrentEnable = false;
+                wasEnabled = false;
                 TryMenu();
                 return;
             }
 
-            if (!activeLastFrame)
+            if (!wasEnabled)
             {
-                activeLastFrame = true;
-                appliedForCurrentEnable = false;
+                wasEnabled = true;
                 nextScan = 0f;
                 waitingLogged = false;
+                jointStates.Clear();
+                physicsRig = null;
+                physicsRoot = null;
+                configurableJointType = null;
             }
 
-            // Search only while waiting for the visual avatar. Once the pose is
-            // applied, there is no per-frame or periodic transform work.
-            if (!appliedForCurrentEnable && TimeValue("time") >= nextScan)
+            // Poll only while waiting for the player physics rig. After the one-time
+            // joint pass, this mod performs no recurring physics writes or scans.
+            if (jointStates.Count == 0 && TimeValue("time") >= nextScan)
             {
-                nextScan = TimeValue("time") + 0.5f;
-                if (FindPlayerAvatar())
-                {
-                    ApplyVisualFlexOnce();
-                    appliedForCurrentEnable = true;
-                }
+                nextScan = TimeValue("time") + 0.4f;
+                if (TryFindPhysicsRig())
+                    ApplyJointSettingsOnce();
             }
 
             TryMenu();
@@ -117,64 +122,400 @@ namespace StretchFlexMotion
 
         public override void OnDeinitializeMelon()
         {
-            RestoreAndClear();
+            RestoreJoints();
         }
 
-        private bool FindPlayerAvatar()
+        private bool TryFindPhysicsRig()
         {
             try
             {
                 Type playerType = FindType("BoneLib.Player");
-                object manager = GetStatic(playerType, "RigManager") ?? GetStatic(playerType, "rigManager");
-                if (manager == null)
+                object rig = GetStatic(playerType, "PhysicsRig");
+
+                if (rig == null)
                 {
-                    LogWaiting("Waiting for BoneLib.Player.RigManager.");
+                    MethodInfo getter = playerType?.GetMethod("GetPhysicsRig", BindingFlags.Public | BindingFlags.Static);
+                    if (getter != null)
+                        rig = getter.Invoke(null, null);
+                }
+
+                if (rig == null)
+                {
+                    LogWaiting("Waiting for BoneLib.Player.PhysicsRig.");
                     return false;
                 }
 
-                // RigManager.avatar is the rendered avatar component. Do not fall back
-                // to manager.transform or physicsRig.transform: those contain live physics.
-                object avatar = MemberOrGetter(manager, "avatar", "Avatar");
-                if (avatar == null)
-                {
-                    LogWaiting("Player RigManager found; waiting for its avatar visual.");
-                    return false;
-                }
-
-                object root = MemberOrGetter(avatar, "transform", "Transform");
+                object root = MemberOrGetter(rig, "transform", "Transform");
                 if (root == null)
                 {
-                    object gameObject = MemberOrGetter(avatar, "gameObject", "GameObject");
-                    root = gameObject == null ? null : MemberOrGetter(gameObject, "transform", "Transform");
-                }
-
-                if (root == null)
-                {
-                    LogWaiting("Avatar component found, but its visual transform is unavailable.");
+                    LogWaiting("PhysicsRig exists, but its transform is unavailable.");
                     return false;
                 }
 
-                if (!SameObject(manager, rigManager) || !SameObject(root, avatarRoot))
+                configurableJointType = FindType("UnityEngine.ConfigurableJoint");
+                if (configurableJointType == null)
+                    configurableJointType = FindTypeBySimpleName("ConfigurableJoint");
+
+                if (configurableJointType == null)
                 {
-                    RestoreAndClear();
-                    rigManager = manager;
-                    avatarRoot = root;
-                    waitingLogged = false;
+                    LogWaiting("Unity ConfigurableJoint type was not found.");
+                    return false;
                 }
 
-                if (bones.Count == 0)
-                {
-                    int visited = CollectVisualBones(root, 0);
-                    MelonLogger.Msg("[Stretch Flex Motion] Visual avatar scanned. Body transforms: " + bones.Count + ".");
-                }
-
-                return bones.Count > 0;
+                physicsRig = rig;
+                physicsRoot = root;
+                return true;
             }
             catch (Exception e)
             {
-                MelonLogger.Warning("[Stretch Flex Motion] Avatar discovery: " + e.Message);
+                MelonLogger.Warning("[Stretch Flex Motion] Physics rig discovery: " + e.Message);
                 return false;
             }
+        }
+
+        private void ApplyJointSettingsOnce()
+        {
+            try
+            {
+                int visited = CollectJoints(physicsRoot, 0);
+                int modified = 0;
+                int torsoCount = 0;
+
+                foreach (JointState state in jointStates)
+                {
+                    if (state == null || state.Joint == null)
+                        continue;
+
+                    if (ApplyToJoint(state))
+                    {
+                        modified++;
+                        if (state.Group == Waist || state.Group == Chest || state.Group == Hips)
+                            torsoCount++;
+                    }
+                }
+
+                MelonLogger.Msg("[Stretch Flex Motion] One-shot physics pass: modified " + modified +
+                    " joints (" + torsoCount + " torso/waist/hip); visited " + visited +
+                    " physics transforms. No per-frame writes are active.");
+
+                if (modified == 0)
+                    MelonLogger.Warning("[Stretch Flex Motion] No recognized body ConfigurableJoints were modified. Check the rig hierarchy in the log.");
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Warning("[Stretch Flex Motion] Joint apply failed: " + e.Message);
+                RestoreJoints();
+            }
+        }
+
+        private int CollectJoints(object parent, int depth)
+        {
+            if (parent == null || depth > 64 || jointStates.Count >= 256)
+                return 0;
+
+            int visited = 1;
+            try
+            {
+                object joint = Call(parent, "GetComponent", configurableJointType);
+                if (joint == null)
+                {
+                    object gameObject = MemberOrGetter(parent, "gameObject", "GameObject");
+                    if (gameObject != null)
+                        joint = Call(gameObject, "GetComponent", configurableJointType);
+                }
+
+                if (joint != null && !ContainsJoint(joint))
+                {
+                    string ownName = Name(parent);
+                    object connectedBody = MemberOrGetter(joint, "connectedBody", "ConnectedBody");
+                    object connectedTransform = connectedBody == null ? null : MemberOrGetter(connectedBody, "transform", "Transform");
+                    string connectedName = Name(connectedTransform);
+                    int group = ClassifyJoint(ownName + " " + connectedName);
+
+                    if (group != 0)
+                    {
+                        jointStates.Add(SnapshotJoint(joint, ownName + " <-> " + connectedName, group));
+                    }
+                }
+
+                int count = Convert.ToInt32(MemberOrGetter(parent, "childCount", "ChildCount"));
+                for (int i = 0; i < count && jointStates.Count < 256; i++)
+                {
+                    object child = Call(parent, "GetChild", i);
+                    if (child != null)
+                        visited += CollectJoints(child, depth + 1);
+                }
+            }
+            catch { }
+
+            return visited;
+        }
+
+        private bool ContainsJoint(object joint)
+        {
+            int id = GetId(joint);
+            foreach (JointState state in jointStates)
+            {
+                if (SameObject(state.Joint, joint) || (id != 0 && GetId(state.Joint) == id))
+                    return true;
+            }
+            return false;
+        }
+
+        private static JointState SnapshotJoint(object joint, string name, int group)
+        {
+            return new JointState
+            {
+                Joint = joint,
+                Name = name,
+                Group = group,
+                AngularXDrive = CloneValue(MemberOrGetter(joint, "angularXDrive", "AngularXDrive")),
+                AngularYZDrive = CloneValue(MemberOrGetter(joint, "angularYZDrive", "AngularYZDrive")),
+                SlerpDrive = CloneValue(MemberOrGetter(joint, "slerpDrive", "SlerpDrive")),
+                LowAngularXLimit = CloneValue(MemberOrGetter(joint, "lowAngularXLimit", "LowAngularXLimit")),
+                HighAngularXLimit = CloneValue(MemberOrGetter(joint, "highAngularXLimit", "HighAngularXLimit")),
+                AngularYLimit = CloneValue(MemberOrGetter(joint, "angularYLimit", "AngularYLimit")),
+                AngularZLimit = CloneValue(MemberOrGetter(joint, "angularZLimit", "AngularZLimit")),
+                AngularXMotion = MemberOrGetter(joint, "angularXMotion", "AngularXMotion"),
+                AngularYMotion = MemberOrGetter(joint, "angularYMotion", "AngularYMotion"),
+                AngularZMotion = MemberOrGetter(joint, "angularZMotion", "AngularZMotion")
+            };
+        }
+
+        private bool ApplyToJoint(JointState state)
+        {
+            object joint = state.Joint;
+            if (joint == null)
+                return false;
+
+            float control = GroupControl(state.Group);
+            if (control <= 0f)
+                return false;
+
+            float amount = Clamp(control / 3f, 0f, 1f) * Clamp(flexibility.Value / 3f, 0f, 1f);
+            float springScale = Clamp(1f - 0.78f * amount, 0.16f, 1f);
+            float damperScale = Clamp(1f - 0.38f * amount, 0.45f, 1f);
+            float limitScale = 1f + Clamp(stretchiness.Value, 0f, 3f) * 0.18f * Clamp(control / 3f, 0f, 1f);
+
+            ApplyDrive(joint, "angularXDrive", state.AngularXDrive, springScale, damperScale);
+            ApplyDrive(joint, "angularYZDrive", state.AngularYZDrive, springScale, damperScale);
+            ApplyDrive(joint, "slerpDrive", state.SlerpDrive, springScale, damperScale);
+
+            bool torsoJoint = state.Group == Waist || state.Group == Chest || state.Group == Hips;
+            float requestedBend = Clamp(maxBend.Value, 5f, 65f);
+            float baseBend = requestedBend * (state.Group == Waist ? 1f :
+                                             state.Group == Chest ? 0.78f : 0.62f);
+            if (torsoJoint)
+            {
+                ApplyMotionAndLimit(joint, "angularXMotion", state.AngularXMotion,
+                    "lowAngularXLimit", state.LowAngularXLimit,
+                    "highAngularXLimit", state.HighAngularXLimit,
+                    limitScale, baseBend);
+
+                ApplyMotionAndLimit(joint, "angularYMotion", state.AngularYMotion,
+                    "angularYLimit", state.AngularYLimit,
+                    limitScale, baseBend * 0.65f);
+
+                ApplyMotionAndLimit(joint, "angularZMotion", state.AngularZMotion,
+                    "angularZLimit", state.AngularZLimit,
+                    limitScale, baseBend * 0.70f);
+            }
+            else
+            {
+                // For arms and legs, expand only axes already marked Limited.
+                ExpandExistingLimit(joint, "angularXMotion", state.AngularXMotion,
+                    "lowAngularXLimit", state.LowAngularXLimit,
+                    "highAngularXLimit", state.HighAngularXLimit, limitScale);
+
+                ExpandExistingLimit(joint, "angularYMotion", state.AngularYMotion,
+                    "angularYLimit", state.AngularYLimit, limitScale);
+
+                ExpandExistingLimit(joint, "angularZMotion", state.AngularZMotion,
+                    "angularZLimit", state.AngularZLimit, limitScale);
+            }
+
+            return true;
+        }
+
+        private static void ApplyDrive(object joint, string property, object original, float springScale, float damperScale)
+        {
+            if (original == null)
+                return;
+
+            object changed = CloneValue(original);
+            if (changed == null)
+                return;
+
+            object springObj = MemberOrGetter(changed, "positionSpring", "PositionSpring");
+            object damperObj = MemberOrGetter(changed, "positionDamper", "PositionDamper");
+            float spring = ToFloat(springObj);
+            float damper = ToFloat(damperObj);
+
+            SetMember(changed, "positionSpring", spring * springScale);
+            SetMember(changed, "positionDamper", damper * damperScale);
+            SetMember(joint, property, changed);
+        }
+
+        private static void ApplyMotionAndLimit(object joint, string motionProperty, object originalMotion,
+            string limitProperty, object originalLimit, float scale, float minimumLimit)
+        {
+            if (originalMotion == null)
+                return;
+
+            int motion = EnumValue(originalMotion);
+            if (motion == 0)
+            {
+                object limited = Enum.ToObject(originalMotion.GetType(), 1);
+                SetMember(joint, motionProperty, limited);
+            }
+
+            ApplySoftLimit(joint, limitProperty, originalLimit, scale, minimumLimit);
+        }
+
+        private static void ApplyMotionAndLimit(object joint, string motionProperty, object originalMotion,
+            string lowProperty, object originalLow, string highProperty, object originalHigh,
+            float scale, float minimumLimit)
+        {
+            if (originalMotion == null)
+                return;
+
+            int motion = EnumValue(originalMotion);
+            if (motion == 0)
+            {
+                object limited = Enum.ToObject(originalMotion.GetType(), 1);
+                SetMember(joint, motionProperty, limited);
+            }
+
+            ApplySoftLimit(joint, lowProperty, originalLow, scale, -minimumLimit);
+            ApplySoftLimit(joint, highProperty, originalHigh, scale, minimumLimit);
+        }
+
+        private static void ExpandExistingLimit(object joint, string motionProperty, object originalMotion,
+            string limitProperty, object originalLimit, float scale)
+        {
+            if (originalMotion != null && EnumValue(originalMotion) == 1)
+                ApplySoftLimit(joint, limitProperty, originalLimit, scale, 0f);
+        }
+
+        private static void ExpandExistingLimit(object joint, string motionProperty, object originalMotion,
+            string lowProperty, object originalLow, string highProperty, object originalHigh, float scale)
+        {
+            if (originalMotion != null && EnumValue(originalMotion) == 1)
+            {
+                ApplySoftLimit(joint, lowProperty, originalLow, scale, 0f);
+                ApplySoftLimit(joint, highProperty, originalHigh, scale, 0f);
+            }
+        }
+
+        private static void ApplySoftLimit(object joint, string property, object original, float scale, float minimum)
+        {
+            if (original == null)
+                return;
+
+            object changed = CloneValue(original);
+            if (changed == null)
+                return;
+
+            float originalLimit = ToFloat(MemberOrGetter(changed, "limit", "Limit"));
+            float result = minimum < 0f
+                ? Math.Min(originalLimit * scale, minimum)
+                : Math.Max(Math.Abs(originalLimit) * scale, minimum);
+
+            // Preserve original sign for existing signed axes, otherwise use the requested side.
+            if (minimum == 0f && originalLimit < 0f)
+                result = -Math.Abs(result);
+
+            SetMember(changed, "limit", result);
+            SetMember(joint, property, changed);
+        }
+
+        private float GroupControl(int group)
+        {
+            switch (group)
+            {
+                case Arms: return Clamp(armFlex.Value, 0f, 3f);
+                case Legs: return Clamp(legFlex.Value, 0f, 3f);
+                case Spine:
+                case Chest: return Clamp(spineFlex.Value, 0f, 3f);
+                case Hips: return Clamp(hipFlex.Value, 0f, 3f);
+                case Waist: return flexibleWaist.Value ? Clamp(waistFlex.Value, 0f, 3f) : 0f;
+                default: return 0f;
+            }
+        }
+
+        private static int ClassifyJoint(string value)
+        {
+            string n = (value ?? "").ToLowerInvariant();
+
+            if (n.Contains("waist") || n.Contains("abdomen") ||
+                n.Contains("lowerback") || n.Contains("lower_back") ||
+                n.Contains("lower-spine") || n.Contains("lower_spine") ||
+                n.Contains("spine") || n.Contains("torso"))
+                return Waist;
+
+            if (n.Contains("chest") || n.Contains("upperchest") ||
+                n.Contains("neck") || n.Contains("shoulderbase"))
+                return Chest;
+
+            if (n.Contains("pelvis") || n.Contains("hips") ||
+                n.Contains("hip_l") || n.Contains("hip_r") ||
+                n.Contains("lefthip") || n.Contains("righthip"))
+                return Hips;
+
+            if (n.Contains("upperarm") || n.Contains("lowerarm") ||
+                n.Contains("forearm") || n.Contains("shoulder") ||
+                n.Contains("elbow") || n.Contains("arm_l") ||
+                n.Contains("arm_r") || n.Contains("bicep"))
+                return Arms;
+
+            if (n.Contains("thigh") || n.Contains("upperleg") ||
+                n.Contains("lowerleg") || n.Contains("calf") ||
+                n.Contains("shin") || n.Contains("knee") ||
+                n.Contains("ankle") || n.Contains("foot") ||
+                n.Contains("leglf") || n.Contains("legrt") ||
+                n.Contains("leg_l") || n.Contains("leg_r"))
+                return Legs;
+
+            return 0;
+        }
+
+        private void RestoreJoints()
+        {
+            try
+            {
+                foreach (JointState state in jointStates)
+                {
+                    if (state == null || state.Joint == null)
+                        continue;
+
+                    object joint = state.Joint;
+                    RestoreValue(joint, "angularXDrive", state.AngularXDrive);
+                    RestoreValue(joint, "angularYZDrive", state.AngularYZDrive);
+                    RestoreValue(joint, "slerpDrive", state.SlerpDrive);
+                    RestoreValue(joint, "lowAngularXLimit", state.LowAngularXLimit);
+                    RestoreValue(joint, "highAngularXLimit", state.HighAngularXLimit);
+                    RestoreValue(joint, "angularYLimit", state.AngularYLimit);
+                    RestoreValue(joint, "angularZLimit", state.AngularZLimit);
+                    RestoreValue(joint, "angularXMotion", state.AngularXMotion);
+                    RestoreValue(joint, "angularYMotion", state.AngularYMotion);
+                    RestoreValue(joint, "angularZMotion", state.AngularZMotion);
+                }
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Warning("[Stretch Flex Motion] Joint restore: " + e.Message);
+            }
+
+            jointStates.Clear();
+            physicsRig = null;
+            physicsRoot = null;
+            configurableJointType = null;
+        }
+
+        private static void RestoreValue(object joint, string property, object value)
+        {
+            if (value != null)
+                SetMember(joint, property, CloneValue(value));
         }
 
         private void LogWaiting(string message)
@@ -184,228 +525,6 @@ namespace StretchFlexMotion
                 MelonLogger.Msg("[Stretch Flex Motion] " + message);
                 waitingLogged = true;
             }
-        }
-
-        private int CollectVisualBones(object parent, int depth)
-        {
-            if (parent == null || depth > 80 || bones.Count >= 512)
-                return 0;
-
-            int visited = 0;
-            try
-            {
-                int childCount = Convert.ToInt32(MemberOrGetter(parent, "childCount", "ChildCount"));
-                for (int i = 0; i < childCount && bones.Count < 512; i++)
-                {
-                    object child = Call(parent, "GetChild", i);
-                    if (child == null)
-                        continue;
-
-                    visited++;
-                    string name = Name(child).ToLowerInvariant();
-
-                    // Do not descend into hand/controller/collider/physics subtrees.
-                    if (IsUnsafeVisualBranch(name))
-                        continue;
-
-                    int group = ClassifyBone(name);
-                    if (group != 0)
-                    {
-                        bones.Add(new BoneState
-                        {
-                            Transform = child,
-                            Name = name,
-                            Group = group,
-                            OriginalScale = MemberOrGetter(child, "localScale", "LocalScale"),
-                            OriginalRotation = MemberOrGetter(child, "localRotation", "LocalRotation")
-                        });
-                    }
-
-                    visited += CollectVisualBones(child, depth + 1);
-                }
-            }
-            catch { }
-            return visited;
-        }
-
-        private static bool IsUnsafeVisualBranch(string n)
-        {
-            return n.Contains("physics") || n.Contains("physrig") ||
-                   n.Contains("rigidbody") || n.Contains("collider") ||
-                   n.Contains("joint") || n.Contains("controller") ||
-                   n.Contains("tracker") || n.Contains("grip") ||
-                   n.Contains("weapon") || n.Contains("sensor") ||
-                   n.Contains("hand") || n.Contains("finger") ||
-                   n.Contains("thumb") || n.Contains("pinky") ||
-                   n.Contains("index") || n.Contains("middlefinger") ||
-                   n.Contains("ringfinger");
-        }
-
-        private static int ClassifyBone(string n)
-        {
-            if (n.Contains("waist") || n.Contains("abdomen") ||
-                n.Contains("lowerback") || n.Contains("lower_back") ||
-                n.Contains("lower-spine") || n.Contains("lower_spine") ||
-                n.Contains("torso_lower") || n == "spine" ||
-                n.Contains("spine1") || n.Contains("spine_01") ||
-                n.Contains("spine 1"))
-                return Waist;
-
-            if (n.Contains("pelvis") || n == "hips" || n.Contains("hip_l") ||
-                n.Contains("hip_r") || n.Contains("lefthip") || n.Contains("righthip"))
-                return Hips;
-
-            if (n.Contains("upperarm") || n.Contains("lowerarm") ||
-                n.Contains("forearm") || n.Contains("leftarm") ||
-                n.Contains("rightarm") || n.Contains("arm_l") ||
-                n.Contains("arm_r") || n.Contains("bicep"))
-                return Arms;
-
-            if (n.Contains("thigh") || n.Contains("upperleg") ||
-                n.Contains("lowerleg") || n.Contains("calf") ||
-                n.Contains("shin") || n.Contains("leftleg") ||
-                n.Contains("rightleg") || n.Contains("leg_l") ||
-                n.Contains("leg_r") || n.Contains("foot"))
-                return Legs;
-
-            if (n.Contains("upperchest") || n.Contains("chest") ||
-                n.Contains("neck") || n.Contains("spine2") ||
-                n.Contains("spine_02") || n.Contains("spine 2") ||
-                n.Contains("spine3") || n.Contains("spine_03") ||
-                n.Contains("upper_spine"))
-                return Spine;
-
-            return 0;
-        }
-
-        private void ApplyVisualFlexOnce()
-        {
-            try
-            {
-                float stretch = Clamp(stretchiness.Value, 0f, 3f);
-                float masterFlex = Clamp(flexibility.Value, 0f, 3f) / 3f;
-                float bendLimit = Clamp(maxBend.Value, 0f, 45f);
-
-                foreach (BoneState bone in bones)
-                {
-                    if (bone == null || bone.Transform == null)
-                        continue;
-
-                    float groupControl = GroupControl(bone.Group);
-                    if (groupControl <= 0f)
-                        continue;
-
-                    // Apply scale once from the original snapshot. No lerp or
-                    // continuous correction is performed after this pass.
-                    float factor = Clamp(1f + stretch * groupControl * 0.05f, 1f, 1.45f);
-                    if (bone.OriginalScale != null)
-                    {
-                        object targetScale = StretchScale(bone.OriginalScale, factor, bone.Name);
-                        if (targetScale != null)
-                            SetMember(bone.Transform, "localScale", targetScale);
-                    }
-
-                    float localFlex = GroupFlex(bone.Group) / 3f;
-                    float amplitude = bendLimit * masterFlex * localFlex * 0.35f;
-                    if (bone.Group == Waist && !flexibleWaist.Value)
-                        amplitude = 0f;
-
-                    if (bone.OriginalRotation != null && amplitude > 0.001f)
-                    {
-                        // Fixed, mild pose offset: computed once per activation.
-                        // Alternate the slight side bias across bones to avoid
-                        // applying a perfectly rigid block-like bend.
-                        float sign = (GetId(bone.Transform) & 1) == 0 ? 1f : -1f;
-                        float rx = amplitude * 0.16f;
-                        float ry = amplitude * 0.07f * sign;
-                        float rz = amplitude * 0.10f * sign;
-
-                        if (bone.Group == Arms) { rx *= 0.55f; ry *= 0.45f; rz *= 0.55f; }
-                        else if (bone.Group == Legs) { rx *= 0.45f; ry *= 0.35f; rz *= 0.40f; }
-                        else if (bone.Group == Hips) { rx *= 0.75f; ry *= 0.75f; rz *= 0.55f; }
-                        else if (bone.Group == Waist) { rx *= 1.15f; ry *= 0.85f; rz *= 1.35f; }
-                        else if (bone.Group == Spine) { rx *= 0.65f; ry *= 0.50f; rz *= 0.65f; }
-
-                        object delta = Euler(rx, ry, rz);
-                        object targetRotation = delta == null ? null : Multiply(bone.OriginalRotation, delta);
-                        if (targetRotation != null)
-                            SetMember(bone.Transform, "localRotation", targetRotation);
-                    }
-                }
-
-                MelonLogger.Msg("[Stretch Flex Motion] One-shot stretch/flex settings applied. Toggle Enabled off/on to reapply changed settings.");
-            }
-            catch (Exception e)
-            {
-                MelonLogger.Warning("[Stretch Flex Motion] One-shot apply: " + e.Message);
-            }
-        }
-
-        private float GroupControl(int group)
-        {
-            switch (group)
-            {
-                case Arms: return Clamp(armStretch.Value, 0f, 3f);
-                case Legs: return Clamp(legStretch.Value, 0f, 3f);
-                case Spine: return Clamp(spineStretch.Value, 0f, 3f);
-                case Hips: return Clamp(hipFlex.Value, 0f, 3f);
-                case Waist: return flexibleWaist.Value ? Clamp(waistFlex.Value, 0f, 3f) : 0f;
-                default: return 0f;
-            }
-        }
-
-        private float GroupFlex(int group)
-        {
-            switch (group)
-            {
-                case Hips: return Clamp(hipFlex.Value, 0f, 3f);
-                case Waist: return flexibleWaist.Value ? Clamp(waistFlex.Value, 0f, 3f) : 0f;
-                case Spine: return Clamp(spineStretch.Value, 0f, 3f);
-                case Arms:
-                case Legs: return 3f;
-                default: return 0f;
-            }
-        }
-
-        private static object StretchScale(object original, float factor, string name)
-        {
-            float x = Component(original, "x");
-            float y = Component(original, "y");
-            float z = Component(original, "z");
-
-            bool lengthAxis = name.Contains("arm") || name.Contains("leg") ||
-                              name.Contains("thigh") || name.Contains("calf") ||
-                              name.Contains("shin") || name.Contains("spine") ||
-                              name.Contains("chest") || name.Contains("waist") ||
-                              name.Contains("abdomen");
-            if (lengthAxis)
-                return Vector(x, y * factor, z);
-
-            float widthFactor = 1f + (factor - 1f) * 0.20f;
-            return Vector(x * widthFactor, y * factor, z * widthFactor);
-        }
-
-        private void RestoreAndClear()
-        {
-            try
-            {
-                foreach (BoneState bone in bones)
-                {
-                    if (bone == null || bone.Transform == null)
-                        continue;
-
-                    if (bone.OriginalScale != null)
-                        SetMember(bone.Transform, "localScale", bone.OriginalScale);
-
-                    if (bone.OriginalRotation != null)
-                        SetMember(bone.Transform, "localRotation", bone.OriginalRotation);
-                }
-            }
-            catch { }
-
-            bones.Clear();
-            avatarRoot = null;
-            rigManager = null;
         }
 
         private void TryMenu()
@@ -434,15 +553,15 @@ namespace StretchFlexMotion
                     return;
 
                 CreateBool(page, "Enabled", enabled.Value, v => enabled.Value = v);
+                CreateBool(page, "Flexible Waist", flexibleWaist.Value, v => flexibleWaist.Value = v);
                 CreateFloat(page, "Stretchiness", stretchiness.Value, 0.1f, 0f, 3f, v => stretchiness.Value = v);
                 CreateFloat(page, "Flexibility", flexibility.Value, 0.1f, 0f, 3f, v => flexibility.Value = v);
-                CreateBool(page, "Flexible Waist", flexibleWaist.Value, v => flexibleWaist.Value = v);
                 CreateFloat(page, "Waist Flexibility", waistFlex.Value, 0.1f, 0f, 3f, v => waistFlex.Value = v);
-                CreateFloat(page, "Arm Stretch", armStretch.Value, 0.1f, 0f, 3f, v => armStretch.Value = v);
-                CreateFloat(page, "Leg Stretch", legStretch.Value, 0.1f, 0f, 3f, v => legStretch.Value = v);
-                CreateFloat(page, "Spine Stretch", spineStretch.Value, 0.1f, 0f, 3f, v => spineStretch.Value = v);
                 CreateFloat(page, "Hip Flexibility", hipFlex.Value, 0.1f, 0f, 3f, v => hipFlex.Value = v);
-                CreateFloat(page, "Maximum Bend", maxBend.Value, 1f, 0f, 45f, v => maxBend.Value = v);
+                CreateFloat(page, "Chest Flexibility", spineFlex.Value, 0.1f, 0f, 3f, v => spineFlex.Value = v);
+                CreateFloat(page, "Arm Flexibility", armFlex.Value, 0.1f, 0f, 3f, v => armFlex.Value = v);
+                CreateFloat(page, "Leg Flexibility", legFlex.Value, 0.1f, 0f, 3f, v => legFlex.Value = v);
+                CreateFloat(page, "Maximum Bend", maxBend.Value, 1f, 5f, 65f, v => maxBend.Value = v);
                 menuMade = true;
             }
             catch (Exception e)
@@ -479,16 +598,43 @@ namespace StretchFlexMotion
             }
         }
 
+        private static object CloneValue(object value)
+        {
+            if (value == null)
+                return null;
+
+            try
+            {
+                MethodInfo clone = typeof(object).GetMethod("MemberwiseClone", BindingFlags.Instance | BindingFlags.NonPublic);
+                return clone?.Invoke(value, null) ?? value;
+            }
+            catch { return value; }
+        }
+
+        private static bool SameObject(object a, object b)
+        {
+            if (a == null || b == null)
+                return false;
+            int x = GetId(a), y = GetId(b);
+            return (x != 0 && x == y) || ReferenceEquals(a, b);
+        }
+
         private static object MemberOrGetter(object instance, params string[] names)
         {
-            if (instance == null) return null;
+            if (instance == null)
+                return null;
+
             foreach (string name in names)
             {
                 object value = GetMember(instance, name);
-                if (value != null) return value;
+                if (value != null)
+                    return value;
+
                 value = CallNoArg(instance, "get_" + name);
-                if (value != null) return value;
+                if (value != null)
+                    return value;
             }
+
             return null;
         }
 
@@ -496,17 +642,10 @@ namespace StretchFlexMotion
         {
             try
             {
-                return instance?.GetType().GetMethod(method, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)?.Invoke(instance, null);
+                return instance?.GetType().GetMethod(method,
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)?.Invoke(instance, null);
             }
             catch { return null; }
-        }
-
-        private static bool SameObject(object a, object b)
-        {
-            if (a == null || b == null) return false;
-            int idA = GetId(a);
-            int idB = GetId(b);
-            return (idA != 0 && idA == idB) || ReferenceEquals(a, b);
         }
 
         private static Type FindType(string name)
@@ -514,21 +653,49 @@ namespace StretchFlexMotion
             foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
             {
                 Type found = assembly.GetType(name, false);
-                if (found != null) return found;
+                if (found != null)
+                    return found;
             }
-            return Type.GetType(name + ", UnityEngine.CoreModule") ??
+
+            return Type.GetType(name + ", UnityEngine.PhysicsModule") ??
+                   Type.GetType(name + ", UnityEngine.CoreModule") ??
                    Type.GetType(name + ", BoneLib") ??
                    Type.GetType(name);
+        }
+
+        private static Type FindTypeBySimpleName(string name)
+        {
+            foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                try
+                {
+                    foreach (Type type in assembly.GetTypes())
+                    {
+                        if (type.Name == name)
+                            return type;
+                    }
+                }
+                catch { }
+            }
+
+            return null;
         }
 
         private static object GetStatic(Type type, string name)
         {
             try
             {
-                if (type == null) return null;
-                PropertyInfo property = type.GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                if (property != null) return property.GetValue(null);
-                return type.GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)?.GetValue(null);
+                if (type == null)
+                    return null;
+
+                PropertyInfo property = type.GetProperty(name,
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+
+                if (property != null)
+                    return property.GetValue(null);
+
+                return type.GetField(name,
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)?.GetValue(null);
             }
             catch { return null; }
         }
@@ -537,10 +704,17 @@ namespace StretchFlexMotion
         {
             try
             {
-                if (instance == null) return null;
-                PropertyInfo property = instance.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
-                if (property != null) return property.GetValue(instance);
-                return instance.GetType().GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static)?.GetValue(instance);
+                if (instance == null)
+                    return null;
+
+                PropertyInfo property = instance.GetType().GetProperty(name,
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
+
+                if (property != null)
+                    return property.GetValue(instance);
+
+                return instance.GetType().GetField(name,
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static)?.GetValue(instance);
             }
             catch { return null; }
         }
@@ -549,14 +723,20 @@ namespace StretchFlexMotion
         {
             try
             {
-                if (instance == null) return;
-                PropertyInfo property = instance.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (instance == null)
+                    return;
+
+                PropertyInfo property = instance.GetType().GetProperty(name,
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+
                 if (property != null && property.CanWrite)
                 {
                     property.SetValue(instance, value);
                     return;
                 }
-                instance.GetType().GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)?.SetValue(instance, value);
+
+                instance.GetType().GetField(name,
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)?.SetValue(instance, value);
             }
             catch { }
         }
@@ -565,14 +745,18 @@ namespace StretchFlexMotion
         {
             try
             {
-                if (instance == null) return null;
-                foreach (MethodInfo method in instance.GetType().GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
+                if (instance == null)
+                    return null;
+
+                foreach (MethodInfo method in instance.GetType().GetMethods(
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
                 {
                     if (method.Name == name && method.GetParameters().Length == args.Length)
                         return method.Invoke(instance, args);
                 }
             }
             catch { }
+
             return null;
         }
 
@@ -590,9 +774,15 @@ namespace StretchFlexMotion
             catch { return 0; }
         }
 
-        private static float Component(object vector, string component)
+        private static int EnumValue(object value)
         {
-            try { return Convert.ToSingle(GetMember(vector, component)); }
+            try { return Convert.ToInt32(value); }
+            catch { return -1; }
+        }
+
+        private static float ToFloat(object value)
+        {
+            try { return Convert.ToSingle(value); }
             catch { return 0f; }
         }
 
@@ -601,43 +791,15 @@ namespace StretchFlexMotion
             try
             {
                 Type timeType = FindType("UnityEngine.Time");
-                return Convert.ToSingle(timeType.GetProperty(property, BindingFlags.Public | BindingFlags.Static)?.GetValue(null));
+                return Convert.ToSingle(timeType.GetProperty(property,
+                    BindingFlags.Public | BindingFlags.Static)?.GetValue(null));
             }
-            catch { return property == "deltaTime" ? 0.016f : 0f; }
-        }
-
-        private static object Vector(float x, float y, float z)
-        {
-            try { return Activator.CreateInstance(FindType("UnityEngine.Vector3"), new object[] { x, y, z }); }
-            catch { return null; }
-        }
-
-        private static object Euler(float x, float y, float z)
-        {
-            try
-            {
-                return FindType("UnityEngine.Quaternion").GetMethod("Euler", new[] { typeof(float), typeof(float), typeof(float) }).Invoke(null, new object[] { x, y, z });
-            }
-            catch { return null; }
-        }
-
-        private static object Multiply(object a, object b)
-        {
-            try
-            {
-                return a.GetType().GetMethod("op_Multiply", BindingFlags.Public | BindingFlags.Static).Invoke(null, new[] { a, b });
-            }
-            catch { return null; }
+            catch { return 0f; }
         }
 
         private static float Clamp(float value, float min, float max)
         {
             return value < min ? min : (value > max ? max : value);
-        }
-
-        private static float Clamp01(float value)
-        {
-            return Clamp(value, 0f, 1f);
         }
     }
 }
