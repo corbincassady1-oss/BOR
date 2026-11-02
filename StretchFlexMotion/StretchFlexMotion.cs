@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using MelonLoader;
 
-[assembly: MelonInfo(typeof(StretchFlexMotion.Mod), "Stretch Flex Motion", "1.4.0", "BOR")]
+[assembly: MelonInfo(typeof(StretchFlexMotion.Mod), "Stretch Flex Motion", "1.5.0", "BOR")]
 [assembly: MelonGame("Stress Level Zero", "BONELAB")]
 
 namespace StretchFlexMotion
@@ -15,9 +15,7 @@ namespace StretchFlexMotion
         private MelonPreferences_Entry<bool> safetyMigration;
         private MelonPreferences_Entry<float> stretchiness;
         private MelonPreferences_Entry<float> flexibility;
-        private MelonPreferences_Entry<float> stretchSpeed;
-        private MelonPreferences_Entry<float> flexSpeed;
-        private MelonPreferences_Entry<float> armStretch;
+                private MelonPreferences_Entry<float> armStretch;
         private MelonPreferences_Entry<float> legStretch;
         private MelonPreferences_Entry<float> spineStretch;
         private MelonPreferences_Entry<float> hipFlex;
@@ -30,7 +28,7 @@ namespace StretchFlexMotion
             public string Name;
             public int Group;
             public object OriginalScale;
-            public object LastRotationDelta;
+            public object OriginalRotation;
         }
 
         // These are avatar-renderer transforms only. PhysicsRig is deliberately never accessed.
@@ -38,11 +36,10 @@ namespace StretchFlexMotion
         private object rigManager;
         private object avatarRoot;
         private float nextScan;
-        private float nextLog;
-        private float lastY;
         private bool menuMade;
         private bool activeLastFrame;
         private bool waitingLogged;
+        private bool appliedForCurrentEnable;
 
         private const int Arms = 1;
         private const int Legs = 2;
@@ -55,12 +52,10 @@ namespace StretchFlexMotion
             var cat = MelonPreferences.CreateCategory("StretchFlexMotion", "Stretch Flex Motion");
             enabled = cat.CreateEntry("Enabled", false);
             flexibleWaist = cat.CreateEntry("Flexible Waist", true);
-            safetyMigration = cat.CreateEntry("SafetyMigration140", false);
+            safetyMigration = cat.CreateEntry("SafetyMigration150", false);
 
             stretchiness = cat.CreateEntry("Stretchiness", 1.5f);
             flexibility = cat.CreateEntry("Flexibility", 1.5f);
-            stretchSpeed = cat.CreateEntry("Stretch Speed", 3f);
-            flexSpeed = cat.CreateEntry("Flex Speed", 3f);
             armStretch = cat.CreateEntry("Arm Stretch", 1.5f);
             legStretch = cat.CreateEntry("Leg Stretch", 1.5f);
             spineStretch = cat.CreateEntry("Spine Stretch", 1.5f);
@@ -76,7 +71,7 @@ namespace StretchFlexMotion
                 safetyMigration.Value = true;
             }
 
-            MelonLogger.Msg("[Stretch Flex Motion] 1.4.0 loaded. Visual-avatar-only mode; disabled until enabled in BoneMenu.");
+            MelonLogger.Msg("[Stretch Flex Motion] 1.5.0 loaded. One-shot visual-avatar mode; settings apply once when Enabled is pressed.");
         }
 
         public override void OnLateInitializeMelon()
@@ -90,7 +85,9 @@ namespace StretchFlexMotion
             {
                 if (activeLastFrame || bones.Count > 0)
                     RestoreAndClear();
+
                 activeLastFrame = false;
+                appliedForCurrentEnable = false;
                 TryMenu();
                 return;
             }
@@ -98,22 +95,24 @@ namespace StretchFlexMotion
             if (!activeLastFrame)
             {
                 activeLastFrame = true;
+                appliedForCurrentEnable = false;
                 nextScan = 0f;
+                waitingLogged = false;
             }
 
-            float now = TimeValue("time");
-            if (now >= nextScan)
+            // Search only while waiting for the visual avatar. Once the pose is
+            // applied, there is no per-frame or periodic transform work.
+            if (!appliedForCurrentEnable && TimeValue("time") >= nextScan)
             {
-                nextScan = now + 0.5f;
-                FindPlayerAvatar();
-                TryMenu();
+                nextScan = TimeValue("time") + 0.5f;
+                if (FindPlayerAvatar())
+                {
+                    ApplyVisualFlexOnce();
+                    appliedForCurrentEnable = true;
+                }
             }
-        }
 
-        public override void OnLateUpdate()
-        {
-            if (enabled.Value && bones.Count > 0)
-                ApplyVisualFlex();
+            TryMenu();
         }
 
         public override void OnDeinitializeMelon()
@@ -121,7 +120,7 @@ namespace StretchFlexMotion
             RestoreAndClear();
         }
 
-        private void FindPlayerAvatar()
+        private bool FindPlayerAvatar()
         {
             try
             {
@@ -130,7 +129,7 @@ namespace StretchFlexMotion
                 if (manager == null)
                 {
                     LogWaiting("Waiting for BoneLib.Player.RigManager.");
-                    return;
+                    return false;
                 }
 
                 // RigManager.avatar is the rendered avatar component. Do not fall back
@@ -166,19 +165,15 @@ namespace StretchFlexMotion
                 if (bones.Count == 0)
                 {
                     int visited = CollectVisualBones(root, 0);
-                    lastY = Component(MemberOrGetter(root, "position", "Position"), "y");
-                    MelonLogger.Msg("[Stretch Flex Motion] Avatar visual rig found. Safe body transforms: " + bones.Count + " (visited " + visited + "). Physics rig was not touched.");
+                    MelonLogger.Msg("[Stretch Flex Motion] Visual avatar scanned. Body transforms: " + bones.Count + ".");
                 }
 
-                if (TimeValue("time") >= nextLog)
-                {
-                    nextLog = TimeValue("time") + 8f;
-                    MelonLogger.Msg("[Stretch Flex Motion] Visual-avatar flex active on " + bones.Count + " body transforms.");
-                }
+                return bones.Count > 0;
             }
             catch (Exception e)
             {
                 MelonLogger.Warning("[Stretch Flex Motion] Avatar discovery: " + e.Message);
+                return false;
             }
         }
 
@@ -222,7 +217,7 @@ namespace StretchFlexMotion
                             Name = name,
                             Group = group,
                             OriginalScale = MemberOrGetter(child, "localScale", "LocalScale"),
-                            LastRotationDelta = null
+                            OriginalRotation = MemberOrGetter(child, "localRotation", "LocalRotation")
                         });
                     }
 
@@ -283,22 +278,13 @@ namespace StretchFlexMotion
             return 0;
         }
 
-        private void ApplyVisualFlex()
+        private void ApplyVisualFlexOnce()
         {
             try
             {
-                float time = TimeValue("time");
-                float dt = Math.Max(TimeValue("deltaTime"), 0.001f);
-                float y = Component(MemberOrGetter(avatarRoot, "position", "Position"), "y");
-                float speed = Math.Abs((y - lastY) / dt);
-                lastY = y;
-
-                float movement = Clamp01(0.25f + speed * 0.12f);
                 float stretch = Clamp(stretchiness.Value, 0f, 3f);
                 float masterFlex = Clamp(flexibility.Value, 0f, 3f) / 3f;
                 float bendLimit = Clamp(maxBend.Value, 0f, 45f);
-                float stretchLerp = Clamp01(1f - (float)Math.Exp(-Math.Max(0.1f, stretchSpeed.Value) * dt));
-                float flexSpeedValue = Clamp(flexSpeed.Value, 0.1f, 10f);
 
                 foreach (BoneState bone in bones)
                 {
@@ -306,81 +292,52 @@ namespace StretchFlexMotion
                         continue;
 
                     float groupControl = GroupControl(bone.Group);
-                    float stretchFactor = 1f;
-                    if (groupControl > 0f)
-                    {
-                        stretchFactor = 1f + stretch * groupControl * (0.035f + movement * 0.015f);
-                        stretchFactor = Clamp(stretchFactor, 1f, 1.45f);
-                    }
-
-                    object currentScale = MemberOrGetter(bone.Transform, "localScale", "LocalScale");
-                    if (bone.OriginalScale != null && currentScale != null)
-                    {
-                        object targetScale = StretchScale(bone.OriginalScale, stretchFactor, bone.Name);
-                        object scaleResult = LerpVector(currentScale, targetScale, stretchLerp);
-                        if (scaleResult != null)
-                            SetMember(bone.Transform, "localScale", scaleResult);
-                    }
-
-                    // Remove only our previous visual offset, then add the current one.
-                    // This prevents accumulated rotations even if an animator skips a bone.
-                    object currentRotation = MemberOrGetter(bone.Transform, "localRotation", "LocalRotation");
-                    if (currentRotation == null)
+                    if (groupControl <= 0f)
                         continue;
 
-                    object neutralPose = currentRotation;
-                    if (bone.LastRotationDelta != null)
+                    // Apply scale once from the original snapshot. No lerp or
+                    // continuous correction is performed after this pass.
+                    float factor = Clamp(1f + stretch * groupControl * 0.05f, 1f, 1.45f);
+                    if (bone.OriginalScale != null)
                     {
-                        object inverse = Inverse(bone.LastRotationDelta);
-                        object cleaned = inverse == null ? null : Multiply(currentRotation, inverse);
-                        if (cleaned != null)
-                            neutralPose = cleaned;
+                        object targetScale = StretchScale(bone.OriginalScale, factor, bone.Name);
+                        if (targetScale != null)
+                            SetMember(bone.Transform, "localScale", targetScale);
                     }
 
                     float localFlex = GroupFlex(bone.Group) / 3f;
-                    float amplitude = bendLimit * masterFlex * localFlex;
+                    float amplitude = bendLimit * masterFlex * localFlex * 0.35f;
                     if (bone.Group == Waist && !flexibleWaist.Value)
                         amplitude = 0f;
 
-                    if (amplitude <= 0.001f)
+                    if (bone.OriginalRotation != null && amplitude > 0.001f)
                     {
-                        SetMember(bone.Transform, "localRotation", neutralPose);
-                        bone.LastRotationDelta = null;
-                        continue;
-                    }
+                        // Fixed, mild pose offset: computed once per activation.
+                        // Alternate the slight side bias across bones to avoid
+                        // applying a perfectly rigid block-like bend.
+                        float sign = (GetId(bone.Transform) & 1) == 0 ? 1f : -1f;
+                        float rx = amplitude * 0.16f;
+                        float ry = amplitude * 0.07f * sign;
+                        float rz = amplitude * 0.10f * sign;
 
-                    float phase = (GetId(bone.Transform) & 1023) * 0.011f;
-                    float wave = (float)Math.Sin(time * flexSpeedValue + phase);
-                    float side = (float)Math.Cos(time * flexSpeedValue * 0.71f + phase);
-                    float bend = wave * amplitude * 0.45f;
-                    float twist = side * amplitude * 0.22f;
+                        if (bone.Group == Arms) { rx *= 0.55f; ry *= 0.45f; rz *= 0.55f; }
+                        else if (bone.Group == Legs) { rx *= 0.45f; ry *= 0.35f; rz *= 0.40f; }
+                        else if (bone.Group == Hips) { rx *= 0.75f; ry *= 0.75f; rz *= 0.55f; }
+                        else if (bone.Group == Waist) { rx *= 1.15f; ry *= 0.85f; rz *= 1.35f; }
+                        else if (bone.Group == Spine) { rx *= 0.65f; ry *= 0.50f; rz *= 0.65f; }
 
-                    float rx = bend;
-                    float ry = twist;
-                    float rz = side * bend * 0.35f;
-                    if (bone.Group == Arms) { rx *= 0.65f; ry *= 0.45f; rz *= 0.75f; }
-                    else if (bone.Group == Legs) { rx *= 0.50f; ry *= 0.35f; rz *= 0.45f; }
-                    else if (bone.Group == Hips) { rx *= 0.85f; ry *= 0.75f; rz *= 0.50f; }
-                    else if (bone.Group == Waist) { rx *= 1.0f; ry *= 0.80f; rz *= 1.25f; }
-                    else if (bone.Group == Spine) { rx *= 0.80f; ry *= 0.55f; rz *= 0.70f; }
-
-                    object delta = Euler(rx, ry, rz);
-                    object targetRotation = delta == null ? null : Multiply(neutralPose, delta);
-                    if (targetRotation != null)
-                    {
-                        SetMember(bone.Transform, "localRotation", targetRotation);
-                        bone.LastRotationDelta = delta;
-                    }
-                    else
-                    {
-                        SetMember(bone.Transform, "localRotation", neutralPose);
-                        bone.LastRotationDelta = null;
+                        object delta = Euler(rx, ry, rz);
+                        object targetRotation = delta == null ? null : Multiply(bone.OriginalRotation, delta);
+                        if (targetRotation != null)
+                            SetMember(bone.Transform, "localRotation", targetRotation);
                     }
                 }
+
+                MelonLogger.Msg("[Stretch Flex Motion] One-shot stretch/flex settings applied. Toggle Enabled off/on to reapply changed settings.");
             }
             catch (Exception e)
             {
-                MelonLogger.Warning("[Stretch Flex Motion] Visual flex update: " + e.Message);
+                MelonLogger.Warning("[Stretch Flex Motion] One-shot apply: " + e.Message);
             }
         }
 
@@ -440,14 +397,8 @@ namespace StretchFlexMotion
                     if (bone.OriginalScale != null)
                         SetMember(bone.Transform, "localScale", bone.OriginalScale);
 
-                    if (bone.LastRotationDelta != null)
-                    {
-                        object current = MemberOrGetter(bone.Transform, "localRotation", "LocalRotation");
-                        object inverse = Inverse(bone.LastRotationDelta);
-                        object restored = current == null || inverse == null ? null : Multiply(current, inverse);
-                        if (restored != null)
-                            SetMember(bone.Transform, "localRotation", restored);
-                    }
+                    if (bone.OriginalRotation != null)
+                        SetMember(bone.Transform, "localRotation", bone.OriginalRotation);
                 }
             }
             catch { }
@@ -487,8 +438,6 @@ namespace StretchFlexMotion
                 CreateFloat(page, "Flexibility", flexibility.Value, 0.1f, 0f, 3f, v => flexibility.Value = v);
                 CreateBool(page, "Flexible Waist", flexibleWaist.Value, v => flexibleWaist.Value = v);
                 CreateFloat(page, "Waist Flexibility", waistFlex.Value, 0.1f, 0f, 3f, v => waistFlex.Value = v);
-                CreateFloat(page, "Stretch Speed", stretchSpeed.Value, 0.1f, 0.5f, 10f, v => stretchSpeed.Value = v);
-                CreateFloat(page, "Flex Speed", flexSpeed.Value, 0.1f, 0.5f, 10f, v => flexSpeed.Value = v);
                 CreateFloat(page, "Arm Stretch", armStretch.Value, 0.1f, 0f, 3f, v => armStretch.Value = v);
                 CreateFloat(page, "Leg Stretch", legStretch.Value, 0.1f, 0f, 3f, v => legStretch.Value = v);
                 CreateFloat(page, "Spine Stretch", spineStretch.Value, 0.1f, 0f, 3f, v => spineStretch.Value = v);
@@ -663,15 +612,6 @@ namespace StretchFlexMotion
             catch { return null; }
         }
 
-        private static object LerpVector(object a, object b, float amount)
-        {
-            try
-            {
-                return FindType("UnityEngine.Vector3").GetMethod("Lerp", BindingFlags.Public | BindingFlags.Static).Invoke(null, new object[] { a, b, amount });
-            }
-            catch { return b; }
-        }
-
         private static object Euler(float x, float y, float z)
         {
             try
@@ -686,15 +626,6 @@ namespace StretchFlexMotion
             try
             {
                 return a.GetType().GetMethod("op_Multiply", BindingFlags.Public | BindingFlags.Static).Invoke(null, new[] { a, b });
-            }
-            catch { return null; }
-        }
-
-        private static object Inverse(object rotation)
-        {
-            try
-            {
-                return FindType("UnityEngine.Quaternion").GetMethod("Inverse", BindingFlags.Public | BindingFlags.Static).Invoke(null, new[] { rotation });
             }
             catch { return null; }
         }
