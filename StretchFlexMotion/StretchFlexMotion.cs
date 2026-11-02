@@ -54,6 +54,7 @@ namespace StretchFlexMotion
         private bool menuMade;
         private bool wasEnabled;
         private bool waitingLogged;
+        private bool scanComplete;
 
         public override void OnInitializeMelon()
         {
@@ -106,15 +107,20 @@ namespace StretchFlexMotion
                 physicsRig = null;
                 physicsRoot = null;
                 configurableJointType = null;
+                scanComplete = false;
             }
 
-            // Poll only while waiting for the player physics rig. After the one-time
-            // joint pass, this mod performs no recurring physics writes or scans.
-            if (jointStates.Count == 0 && TimeValue("time") >= nextScan)
+            // Poll only while waiting for the player physics rig. As soon as the rig
+            // is found, scan once even if no recognized joints are present; there is
+            // no repeated hierarchy scan or physics write afterwards.
+            if (!scanComplete && TimeValue("time") >= nextScan)
             {
                 nextScan = TimeValue("time") + 0.4f;
                 if (TryFindPhysicsRig())
+                {
+                    scanComplete = true;
                     ApplyJointSettingsOnce();
+                }
             }
 
             TryMenu();
@@ -232,11 +238,7 @@ namespace StretchFlexMotion
                     string connectedName = Name(connectedTransform);
                     // Prefer the body carrying this joint. Only fall back to the connected
                     // body when the joint object's own transform has a generic name.
-                    int group = ClassifyJoint(ownName);
-                    if (group == 0)
-                        group = ClassifyJoint(connectedName);
-                    if (group == 0)
-                        group = ClassifyJoint(ownName + " " + connectedName);
+                    int group = ClassifyConnection(ownName, connectedName);
 
                     if (group != 0)
                     {
@@ -449,6 +451,29 @@ namespace StretchFlexMotion
             }
         }
 
+        private static int ClassifyConnection(string ownName, string connectedName)
+        {
+            string own = (ownName ?? "").ToLowerInvariant();
+            string connected = (connectedName ?? "").ToLowerInvariant();
+            string combined = own + " " + connected;
+
+            bool hasPelvis = combined.Contains("pelvis") || combined.Contains("hip");
+            bool hasUpperTorso = combined.Contains("chest") || combined.Contains("spine") ||
+                                 combined.Contains("torso") || combined.Contains("abdomen");
+            if (hasPelvis && hasUpperTorso)
+                return Waist;
+
+            int group = ClassifyJoint(ownName);
+            if (group != 0)
+                return group;
+
+            group = ClassifyJoint(connectedName);
+            if (group != 0)
+                return group;
+
+            return ClassifyJoint(combined);
+        }
+
         private static int ClassifyJoint(string value)
         {
             string n = (value ?? "").ToLowerInvariant();
@@ -513,6 +538,7 @@ namespace StretchFlexMotion
             }
 
             jointStates.Clear();
+            scanComplete = false;
             physicsRig = null;
             physicsRoot = null;
             configurableJointType = null;
